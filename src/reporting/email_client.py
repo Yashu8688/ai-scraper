@@ -202,17 +202,16 @@ def send_email_with_report(excel_path: str, jobs: List[Dict[str, Any]]) -> bool:
         today_str = datetime.date.today().strftime("%d/%m/%Y")
         subject = f"🇺🇸 Cyber Security Jobs Digest ({today_str}) - {len(jobs)} Leads"
         
-        # Create message container
+        recipients = [e.strip() for e in settings.EMAIL_TO.split(",") if e.strip()]
+
         msg = MIMEMultipart()
         msg["From"] = settings.EMAIL_FROM
-        msg["To"] = settings.EMAIL_TO
+        msg["To"] = ", ".join(recipients)
         msg["Subject"] = subject
-        
-        # Attach HTML body
+
         html_body = build_html_body(jobs)
         msg.attach(MIMEText(html_body, "html"))
-        
-        # Attach Excel file
+
         logger.info(f"Attaching Excel file to email: {excel_file.name}")
         with open(excel_file, "rb") as attachment:
             part = MIMEBase("application", "octet-stream")
@@ -223,20 +222,16 @@ def send_email_with_report(excel_path: str, jobs: List[Dict[str, Any]]) -> bool:
                 f"attachment; filename= {excel_file.name}",
             )
             msg.attach(part)
-            
-        # Connect to SMTP server
+
         logger.info(f"Connecting to SMTP server {settings.SMTP_HOST}:{settings.SMTP_PORT} via TLS...")
         server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)
         server.starttls()
-        
-        # Login
         server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-        
-        # Send
-        server.sendmail(settings.EMAIL_FROM, [settings.EMAIL_TO], msg.as_string())
+
+        server.sendmail(settings.EMAIL_FROM, recipients, msg.as_string())
         server.quit()
-        
-        logger.info(f"Email successfully dispatched to {settings.EMAIL_TO}")
+
+        logger.info(f"Email successfully dispatched to {', '.join(recipients)}")
         return True
     except Exception as e:
         logger.error(f"Failed to send email: {str(e)}", exc_info=True)
