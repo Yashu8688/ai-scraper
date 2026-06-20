@@ -652,5 +652,77 @@
     "ats": "ashby",
     "token": "mosaic",
     "careers_url": "https://www.mosaic.tech/careers"
+  },
+  {
+    "name": "Truffle Security",
+    "ats": "greenhouse",
+    "token": "trufflesecurity",
+    "careers_url": "https://trufflesecurity.com/careers"
+  },
+  {
+    "name": "Chainguard",
+    "ats": "greenhouse",
+    "token": "chainguard",
+    "careers_url": "https://www.chainguard.dev/careers"
+  },
+  {
+    "name": "Bitwarden",
+    "ats": "greenhouse",
+    "token": "bitwarden",
+    "careers_url": "https://bitwarden.com/careers/"
+  },
+  {
+    "name": "SafeBreach",
+    "ats": "greenhouse",
+    "token": "safebreach",
+    "careers_url": "https://www.safebreach.com/careers"
+  },
+  {
+    "name": "Apiiro",
+    "ats": "greenhouse",
+    "token": "apiiro",
+    "careers_url": "https://apiiro.com/careers"
+  },
+  {
+    "name": "Endor Labs",
+    "ats": "greenhouse",
+    "token": "endorlabs",
+    "careers_url": "https://www.endorlabs.com/careers"
+  },
+  {
+    "name": "Armorcode",
+    "ats": "greenhouse",
+    "token": "armorcode",
+    "careers_url": "https://www.armorcode.com/careers"
+  },
+  {
+    "name": "Halcyon",
+    "ats": "greenhouse",
+    "token": "halcyon",
+    "careers_url": "https://www.halcyon.ai/company/careers"
+  },
+  {
+    "name": "Cribl",
+    "ats": "greenhouse",
+    "token": "cribl",
+    "careers_url": "https://cribl.io/careers/"
+  },
+  {
+    "name": "Semgrep",
+    "ats": "ashby",
+    "token": "semgrep",
+    "careers_url": "https://semgrep.dev/careers"
+  },
+  {
+    "name": "Material Security",
+    "ats": "ashby",
+    "token": "materialsecurity",
+    "careers_url": "https://material.security/careers"
+  },
+  {
+    "name": "Horizon3.ai",
+    "ats": "ashby",
+    "token": "horizon3ai",
+    "careers_url": "https://www.horizon3.ai/careers"
   }
 ]
