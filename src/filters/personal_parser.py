@@ -26,8 +26,10 @@ EXCLUDE_TITLE_PATTERNS = [
     r"\bvideo\s+editor\b", r"\bgrowth\b", r"\bintern\b",
     r"\bmanager\b", r"\bdirector\b", r"\bprincipal\b", r"\bstaff\b",
     r"\bvp\b", r"\bchief\b", r"\bhead\b", r"\bdistinguished\b",
-    r"\bsenior\b", r"\bsr\.\b", r"\blead\b",
+    r"\bsenior\b", r"\bsr\.\b", r"\bsr\b", r"\blead\b",
     r"\bpartner\b", r"\bpremier\b",
+    r"\barchitect\b", r"\bspecialist\b", r"\bresident\b",
+    r"\bvideo\b", r"\bscript\b", r"\bescalation\b",
 ]
 
 SENIORITY_EXCLUSIONS = [
@@ -49,24 +51,17 @@ def clean_html(html_text: str) -> str:
     return re.sub(r"<[^>]+>", " ", html_text)
 
 
-def is_hyderabad_location(location: str, description: str = "") -> bool:
+def is_hyderabad_or_bangalore(location: str) -> bool:
     loc_lower = location.lower() if location else ""
-    desc_lower = description.lower() if description else ""
 
-    hyderabad_indicators = [
+    allowed = [
         "hyderabad", "hyd", "secunderabad", "hitech city", "hitec city",
-        "gachibowli", "madhapur", "kondapur", "kukatpally", "begumpet",
-        "banjara hills", "jubilee hills", "ameerpet", "telangana",
+        "gachibowli", "madhapur", "kondapur", "telangana",
+        "bangalore", "bengaluru", "karnataka",
     ]
 
-    india_remote = ["india", "remote - india", "remote (india)", "remote, india", "bangalore or hyderabad"]
-
-    for ind in hyderabad_indicators:
-        if ind in loc_lower or ind in desc_lower:
-            return True
-
-    for ind in india_remote:
-        if ind in loc_lower:
+    for kw in allowed:
+        if kw in loc_lower:
             return True
 
     return False
@@ -134,17 +129,13 @@ def filter_personal_job(job: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]
     location = job.get("location", "")
     description = job.get("description", "")
 
-    if not is_hyderabad_location(location, description):
-        return False, "Not in Hyderabad/India", job
+    if not is_hyderabad_or_bangalore(location):
+        return False, "Not in Hyderabad/Bangalore", job
 
     if not is_matching_role(title):
         return False, "Not a matching role", job
 
-    is_exp_match, exp_reason = parse_experience_personal(description, title)
-    if not is_exp_match:
-        return False, f"Experience out of range: {exp_reason}", job
-
     enriched_job = job.copy()
-    enriched_job["experience_metadata"] = exp_reason
+    enriched_job["experience_metadata"] = "Fresher"
 
     return True, "Matches criteria", enriched_job
