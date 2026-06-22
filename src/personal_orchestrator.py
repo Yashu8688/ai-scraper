@@ -141,7 +141,7 @@ def generate_personal_excel(jobs: List[Dict[str, Any]]) -> str:
     center_align = Alignment(horizontal="center", vertical="center")
     left_align = Alignment(horizontal="left", vertical="center")
 
-    ws["A1"] = "Full Stack / AI-ML Jobs - Hyderabad (Fresher to 3 Yrs)"
+    ws["A1"] = "Fresher Jobs - Hyderabad & Bangalore"
     ws["A1"].font = Font(name=font_family, size=16, bold=True, color=brand_color)
 
     generated_time = datetime.datetime.now().strftime("%B %d, %Y - %I:%M %p")
@@ -181,6 +181,61 @@ def generate_personal_excel(jobs: List[Dict[str, Any]]) -> str:
         col_letter = get_column_letter(col[0].column)
         max_len = max((len(str(cell.value or "")) for cell in col if cell.row >= 4), default=10)
         ws.column_dimensions[col_letter].width = max(max_len + 4, 10)
+
+    # Sheet 2: Direct Career Links (all tiers)
+    career_links_path = settings.BASE_DIR / "config" / "career_links.json"
+    if career_links_path.exists():
+        with open(career_links_path, "r") as f:
+            career_data = json.load(f)
+
+        links_rows = []
+        idx = 1
+        for tier_name, companies in career_data.items():
+            for comp in companies:
+                links_rows.append({
+                    "S.No": idx,
+                    "Tier": tier_name.replace("_", " ").title(),
+                    "Company": comp["name"],
+                    "Type": comp.get("type", ""),
+                    "Career Page": comp["careers_url"],
+                })
+                idx += 1
+
+        df_links = pd.DataFrame(links_rows)
+        df_links.to_excel(writer, index=False, startrow=2, sheet_name="Career Links")
+
+        ws2 = writer.sheets["Career Links"]
+        ws2["A1"] = "Direct Career Page Links - Tier 1/2/3 Companies"
+        ws2["A1"].font = Font(name=font_family, size=14, bold=True, color=brand_color)
+        ws2.row_dimensions[1].height = 25
+        ws2.row_dimensions[3].height = 24
+
+        num_cols2 = len(df_links.columns)
+        for col_idx in range(1, num_cols2 + 1):
+            cell = ws2.cell(row=3, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = cell_border
+
+        for row_idx in range(4, 4 + len(df_links)):
+            is_even = row_idx % 2 == 0
+            fill = zebra_fill if is_even else white_fill
+            for col_idx in range(1, num_cols2 + 1):
+                cell = ws2.cell(row=row_idx, column=col_idx)
+                cell.font = cell_font
+                cell.fill = fill
+                cell.border = cell_border
+                if col_idx == 5:
+                    link_url = cell.value
+                    if link_url and str(link_url).startswith("http"):
+                        cell.hyperlink = link_url
+                        cell.value = link_url
+                        cell.font = link_font
+
+        for col in ws2.columns:
+            col_letter = get_column_letter(col[0].column)
+            max_len = max((len(str(cell.value or "")[:60]) for cell in col if cell.row >= 3), default=10)
+            ws2.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
     writer.close()
     logger.info(f"Personal Excel generated: {file_path}")
