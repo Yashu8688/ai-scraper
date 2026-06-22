@@ -14,13 +14,20 @@ ROLE_KEYWORDS = [
     r"\bdata\s+engineer\b", r"\bllm\b", r"\bnlp\b", r"\bdeep\s+learning\b",
     r"\bdevops\b", r"\bsre\b", r"\bcloud\s+engineer\b",
     r"\bsde\b", r"\bmember\s+of\s+technical\s+staff\b", r"\bmts\b",
+    r"\bsoftware\s+architect\b", r"\bplatform\s+engineer\b", r"\bsite\s+reliability\b",
+    r"\binfrastructure\s+engineer\b", r"\bdata\s+analyst\b", r"\banalytics\s+engineer\b",
+    r"\bsolutions\s+architect\b", r"\bgolang\b", r"\bjava\b", r"\bc\+\+\b",
+    r"\bengineering\b",
 ]
 
 EXCLUDE_TITLE_PATTERNS = [
     r"\bsales\b", r"\bmarketing\b", r"\brecruiter\b", r"\bhr\b",
-    r"\baccount\s+manager\b", r"\bcontent\s+writer\b", r"\bdesigner\b",
-    r"\bvideo\s+editor\b", r"\bgrowth\b", r"\bmanager\b", r"\bintern\b",
+    r"\baccount\s+manager\b", r"\bcontent\s+writer\b",
+    r"\bvideo\s+editor\b", r"\bgrowth\b", r"\bintern\b",
+    r"\bmanager\b", r"\bdirector\b", r"\bprincipal\b", r"\bstaff\b",
+    r"\bvp\b", r"\bchief\b", r"\bhead\b", r"\bdistinguished\b",
     r"\bsenior\b", r"\bsr\.\b", r"\blead\b",
+    r"\bpartner\b", r"\bpremier\b",
 ]
 
 SENIORITY_EXCLUSIONS = [
