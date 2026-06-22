@@ -1,0 +1,55 @@
+name: Daily Personal Job Scraper (Hyderabad)
+
+on:
+  schedule:
+    # Run daily at 11:30 PM UTC = 5:00 AM IST next day
+    - cron: '30 23 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scrape-personal-jobs:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Personal Job Aggregator
+      env:
+        SMTP_HOST: smtp.gmail.com
+        SMTP_PORT: "587"
+        SMTP_USER: ${{ secrets.SMTP_USER }}
+        SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        EMAIL_TO: yashuyashwanth9346@gmail.com
+        EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+        CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+      run: |
+        python personal_main.py
+
+    - name: Commit & Push Personal Excel History
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add data/personal/
+        if git diff-index --quiet HEAD --; then
+          echo "No new personal reports generated today. Skipping commit."
+        else
+          git commit -m "chore: daily personal jobs report $(date +'%d-%m-%Y') [skip ci]"
+          git push origin main
+        fi
