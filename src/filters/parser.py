@@ -152,12 +152,12 @@ def parse_experience(description: str, title: str = "") -> Tuple[bool, str]:
         max_exp = max(found_years)
         min_exp = min(found_years)
         
-        # If the minimum experience required is greater than 6, reject
-        if min_exp > 6:
-            return False, f"Requires {min_exp}+ yrs (exceeds 6 yrs)"
-            
-        # If the maximum experience requested is greater than 8 and title is senior, reject
-        if max_exp > 8 and is_senior_title:
+        # If the minimum experience required is greater than 8, reject
+        if min_exp > 8:
+            return False, f"Requires {min_exp}+ yrs (exceeds 8 yrs)"
+
+        # If the maximum experience requested is greater than 10 and title is senior, reject
+        if max_exp > 10 and is_senior_title:
             return False, f"Requires {max_exp} yrs (Senior/Principal)"
             
         return True, ", ".join(experience_mentions[:2])

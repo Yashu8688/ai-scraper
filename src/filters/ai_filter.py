@@ -14,9 +14,9 @@ CRITERIA:
 2. CYBER SECURITY ROLE: Is this a legitimate cybersecurity/information security role?
    - ACCEPT: AppSec, Cloud Security, SOC, Penetration Testing, IAM, GRC, Compliance, Incident Response, Threat Intelligence, SecOps, Security Engineering, SIEM, Vulnerability Management, Cryptography, DevSecOps.
    - REJECT: Physical Security Guard, Food Safety, IT Helpdesk (non-security), Generic Software Engineer, Sales, Marketing, HR.
-3. EXPERIENCE LEVEL (1-6 YEARS): Does the role target 1–6 years of experience?
-   - ACCEPT: Junior, Mid-level, or roles requiring 1-6 years.
-   - REJECT: Internships (0 years), or roles clearly requiring 7+ years (VP, Distinguished Engineer, Staff Principal with 10+ years).
+3. EXPERIENCE LEVEL (1-8 YEARS): Does the role target 1–8 years of experience?
+   - ACCEPT: Junior, Mid-level, Senior roles requiring 1-8 years.
+   - REJECT: Internships (0 years), or roles clearly requiring 10+ years (VP, Distinguished Engineer, Staff Principal, Director).
 
 JOB DETAILS:
 Company: {company}

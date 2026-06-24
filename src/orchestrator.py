@@ -116,7 +116,7 @@ def run_pipeline() -> bool:
 
     # How many jobs to forward per company to Claude for validation
     # Setting to 2 gives Claude more candidates per company, helping reach 30-35 final jobs
-    JOBS_PER_COMPANY_FOR_CLAUDE = 2
+    JOBS_PER_COMPANY_FOR_CLAUDE = 3
 
     pre_diversity_jobs: List[Dict[str, Any]] = []
     for comp_name, comp_jobs in jobs_by_company.items():
@@ -148,7 +148,7 @@ def run_pipeline() -> bool:
     logger.info(f"After Claude AI filter: {len(valid_jobs)} jobs approved.")
 
     # 7. Final Company Diversity Enforcement (top 2 Claude-approved jobs per company)
-    FINAL_JOBS_PER_COMPANY = 2
+    FINAL_JOBS_PER_COMPANY = 3
     final_by_company: Dict[str, List[Dict[str, Any]]] = {}
     for job in valid_jobs:
         comp = job["company"]
@@ -169,7 +169,7 @@ def run_pipeline() -> bool:
     sorted_jobs = sorted(diverse_final, key=get_sort_key, reverse=True)
 
     # Select top 40 jobs for the report
-    final_selection = sorted_jobs[:40]
+    final_selection = sorted_jobs[:50]
     logger.info(f"Selected top {len(final_selection)} jobs for report generation.")
     
     if not final_selection:
