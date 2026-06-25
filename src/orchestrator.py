@@ -47,15 +47,27 @@ def rate_job_relevance(job: Dict[str, Any]) -> int:
 
 def run_pipeline() -> bool:
     logger.info("Initializing Cyber Security Job Aggregator Pipeline...")
-    
+
+    # 0. Auto-discover new companies using Claude AI
+    try:
+        from src.company_discovery import discover_new_companies, update_companies_file
+        new_companies = discover_new_companies(target_count=30)
+        if new_companies:
+            added = update_companies_file(new_companies)
+            logger.info(f"Auto-discovery: added {added} new companies to database.")
+        else:
+            logger.info("Auto-discovery: no new companies found this run.")
+    except Exception as e:
+        logger.warning(f"Company auto-discovery failed (non-fatal): {str(e)}")
+
     # 1. Load Company Database
     if not settings.COMPANIES_JSON_PATH.exists():
         logger.error(f"Companies JSON file not found at {settings.COMPANIES_JSON_PATH}")
         return False
-        
+
     with open(settings.COMPANIES_JSON_PATH, "r") as f:
         companies = json.load(f)
-        
+
     logger.info(f"Loaded {len(companies)} target companies from configuration.")
     
     # 2. Load Excel History for Deduplication (Last 90 Days)
