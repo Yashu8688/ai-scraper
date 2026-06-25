@@ -71,7 +71,7 @@ def run_pipeline() -> bool:
 
     # Shuffle and pick a random subset each day so different companies appear daily
     random.shuffle(all_companies)
-    DAILY_SCRAPE_LIMIT = 120
+    DAILY_SCRAPE_LIMIT = 150
     companies = all_companies[:DAILY_SCRAPE_LIMIT]
 
     logger.info(f"Randomly selected {len(companies)} companies from {len(all_companies)} total for today's run.")

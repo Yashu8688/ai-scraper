@@ -40,7 +40,7 @@ def load_history_signatures() -> Tuple[Set[str], Set[str]]:
         history_dir.mkdir(parents=True, exist_ok=True)
         return seen_titles_companies, seen_links
         
-    cutoff_date = datetime.date.today() - datetime.timedelta(days=90)
+    cutoff_date = datetime.date.today() - datetime.timedelta(days=14)
     excel_files = list(history_dir.glob("CyberJobs_*.xlsx"))
     
     logger.info(f"Scanning {len(excel_files)} Excel history files in {history_dir}")
