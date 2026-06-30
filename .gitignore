@@ -6,3 +6,5 @@ pipeline.log
 ~$*
 bulk_discover.py
 personal_pipeline.log
+node_modules/
+frontend/dist/
