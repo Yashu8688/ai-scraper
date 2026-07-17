@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Company Admin Portal</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<section id="login-screen" class="screen">
+  <div class="login-card">
+    <div class="login-mark">CS</div>
+    <h1>Company Admin Portal</h1>
+    <p class="sub">Enter the shared staff password to continue.</p>
+    <form id="login-form">
+      <label>
+        Your name
+        <input type="text" id="staff-name" placeholder="e.g. Anuradha" required autocomplete="off">
+      </label>
+      <label>
+        Shared password
+        <input type="password" id="password" placeholder="••••••••" required>
+      </label>
+      <button type="submit">Log in</button>
+      <p id="login-error" class="error-msg" hidden></p>
+    </form>
+  </div>
+</section>
+
+<!-- MAIN APP -->
+<section id="app-screen" class="screen" hidden>
+  <header class="topbar">
+    <div class="brand">
+      <span class="login-mark small">CS</span>
+      <span>Company Admin Portal</span>
+    </div>
+    <div class="whoami">
+      <span id="whoami-name"></span>
+      <button id="logout-btn" class="ghost-btn">Log out</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Stats -->
+    <div class="stats-row" id="stats-row">
+      <div class="stat-card">
+        <span class="stat-value" id="stat-total">–</span>
+        <span class="stat-label">Total companies</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" id="stat-today">–</span>
+        <span class="stat-label">Added today</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value" id="stat-due">–</span>
+        <span class="stat-label">Due for next export</span>
+      </div>
+      <div class="stat-card wide" id="stat-by-staff">
+        <span class="stat-label">Today, by teammate</span>
+        <div id="stat-by-staff-list" class="tag-list"></div>
+      </div>
+    </div>
+
+    <div class="columns">
+      <!-- Add company form -->
+      <section class="panel add-panel">
+        <h2>Add a company</h2>
+        <p class="hint">3 per person, per day. US-based, mid/small staffing agencies preferred — no top-tier companies.</p>
+        <form id="add-form">
+          <label>
+            Company name *
+            <input type="text" id="f-name" required autocomplete="off">
+          </label>
+          <div id="dup-warning" class="dup-warning" hidden></div>
+
+          <div class="grid-2">
+            <label>
+              Website
+              <input type="text" id="f-website" placeholder="company.com">
+            </label>
+            <label>
+              State
+              <input type="text" id="f-state" placeholder="e.g. TX">
+            </label>
+          </div>
+
+          <div class="grid-2">
+            <label>
+              ATS platform
+              <select id="f-platform">
+                <option value="custom">Custom careers site</option>
+                <option value="greenhouse">Greenhouse</option>
+                <option value="lever">Lever</option>
+              </select>
+            </label>
+            <label>
+              Board token / slug
+              <input type="text" id="f-board" placeholder="if Greenhouse/Lever">
+            </label>
+          </div>
+
+          <label>
+            Careers page URL
+            <input type="text" id="f-careers" placeholder="https://...">
+          </label>
+
+          <div class="grid-2">
+            <label>
+              Recruiter name
+              <input type="text" id="f-recruiter-name">
+            </label>
+            <label>
+              Recruiter contact
+              <input type="text" id="f-recruiter-contact" placeholder="email or LinkedIn">
+            </label>
+          </div>
+
+          <label>
+            Company size
+            <select id="f-size">
+              <option value="small_mid">Small / mid-size</option>
+              <option value="staffing_agency">Staffing agency</option>
+              <option value="top_tier">Top-tier (will be rejected)</option>
+            </select>
+          </label>
+
+          <button type="submit" id="submit-btn">Add company</button>
+          <p id="add-error" class="error-msg" hidden></p>
+          <p id="add-success" class="success-msg" hidden></p>
+        </form>
+      </section>
+
+      <!-- Company list -->
+      <section class="panel list-panel">
+        <div class="list-header">
+          <h2>Companies</h2>
+          <input type="text" id="search-box" placeholder="Search by name…">
+        </div>
+        <div class="table-wrap">
+          <table id="companies-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Platform</th>
+                <th>State</th>
+                <th>Added by</th>
+                <th>Date added</th>
+                <th>Last shown</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="companies-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+</section>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
