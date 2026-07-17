@@ -25,6 +25,10 @@ body{
 
 h1,h2{ margin: 0; font-family: "Iowan Old Style", "Georgia", serif; }
 
+[hidden] {
+  display: none !important;
+}
+
 /* ---------- login ---------- */
 #login-screen{
   min-height: 100vh;
