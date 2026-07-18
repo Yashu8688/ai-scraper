@@ -51,6 +51,9 @@ def require_auth(authorization: str | None = Header(default=None)):
 def login(payload: LoginRequest):
     if not payload.staff_name.strip():
         raise HTTPException(status_code=400, detail="Enter your name so entries can be tracked.")
+    allowed_staff = {"Anu", "Yashwanth", "Ravi", "Jayadeep"}
+    if payload.staff_name.strip() not in allowed_staff:
+        raise HTTPException(status_code=400, detail="Invalid staff name.")
     if payload.password != ADMIN_PASSWORD:
         raise HTTPException(status_code=401, detail="Incorrect password.")
     token = secrets.token_urlsafe(32)

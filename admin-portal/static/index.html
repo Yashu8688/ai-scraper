@@ -17,7 +17,13 @@
     <form id="login-form">
       <label>
         Your name
-        <input type="text" id="staff-name" placeholder="e.g. Anuradha" required autocomplete="off">
+        <select id="staff-name" required>
+          <option value="" disabled selected>Select your name...</option>
+          <option value="Anu">Anu</option>
+          <option value="Yashwanth">Yashwanth</option>
+          <option value="Ravi">Ravi</option>
+          <option value="Jayadeep">Jayadeep</option>
+        </select>
       </label>
       <label>
         Shared password
@@ -143,12 +149,13 @@
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Size</th>
                 <th>Platform</th>
                 <th>State</th>
                 <th>Added by</th>
                 <th>Date added</th>
                 <th>Last shown</th>
-                <th></th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody id="companies-tbody"></tbody>

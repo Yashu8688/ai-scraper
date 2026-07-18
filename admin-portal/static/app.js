@@ -161,31 +161,92 @@ function fmtDate(d) {
   return d.substring(0, 10);
 }
 
+function fmtSize(size) {
+  if (size === "small_mid") return "Small/Mid";
+  if (size === "staffing_agency") return "Staffing Agency";
+  if (size === "top_tier") return "Top Tier";
+  return size || "—";
+}
+
 function renderCompanies(rows) {
   tbody.innerHTML = "";
   if (rows.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">No companies yet — add the first one.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">No companies yet — add the first one.</td></tr>`;
     return;
   }
   for (const r of rows) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(r.name)}</td>
+      <td>${escapeHtml(fmtSize(r.company_size))}</td>
       <td><span class="platform-badge">${escapeHtml(r.platform)}</span></td>
       <td>${escapeHtml(r.state || "—")}</td>
       <td>${escapeHtml(r.added_by)}</td>
       <td>${fmtDate(r.date_added)}</td>
       <td>${fmtDate(r.last_shown_date)}</td>
-      <td><button class="remove-btn" data-id="${r.id}">Remove</button></td>
+      <td class="actions-cell">
+        <button class="details-btn" data-id="${r.id}">Details</button>
+        <button class="remove-btn" data-id="${r.id}">Remove</button>
+      </td>
     `;
     tbody.appendChild(tr);
+
+    const detailsTr = document.createElement("tr");
+    detailsTr.className = "details-row";
+    detailsTr.id = `details-${r.id}`;
+    detailsTr.hidden = true;
+    detailsTr.innerHTML = `
+      <td colspan="8">
+        <div class="details-content">
+          <div class="details-grid">
+            <div class="details-item">
+              <span class="details-label">Website</span>
+              <span class="details-val">${r.website ? `<a href="${escapeHtml(r.website.startsWith('http') ? r.website : 'https://' + r.website)}" target="_blank">${escapeHtml(r.website)}</a>` : '—'}</span>
+            </div>
+            <div class="details-item">
+              <span class="details-label">Careers URL</span>
+              <span class="details-val">${r.careers_url ? `<a href="${escapeHtml(r.careers_url)}" target="_blank">View Board</a>` : '—'}</span>
+            </div>
+            <div class="details-item">
+              <span class="details-label">Board Token</span>
+              <span class="details-val"><code>${escapeHtml(r.board_identifier || '—')}</code></span>
+            </div>
+            <div class="details-item">
+              <span class="details-label">Recruiter Name</span>
+              <span class="details-val">${escapeHtml(r.recruiter_name || '—')}</span>
+            </div>
+            <div class="details-item">
+              <span class="details-label">Recruiter Contact</span>
+              <span class="details-val">${escapeHtml(r.recruiter_contact || '—')}</span>
+            </div>
+          </div>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(detailsTr);
   }
+
+  tbody.querySelectorAll(".details-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const detailsRow = document.getElementById(`details-${btn.dataset.id}`);
+      if (detailsRow) {
+        detailsRow.hidden = !detailsRow.hidden;
+        btn.textContent = detailsRow.hidden ? "Details" : "Hide";
+        btn.classList.toggle("active", !detailsRow.hidden);
+      }
+    });
+  });
+
   tbody.querySelectorAll(".remove-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (!confirm("Remove this company from the active list?")) return;
-      await api(`/api/companies/${btn.dataset.id}`, { method: "DELETE" });
-      loadCompanies();
-      loadStats();
+      try {
+        await api(`/api/companies/${btn.dataset.id}`, { method: "DELETE" });
+        loadCompanies();
+        loadStats();
+      } catch (err) {
+        alert("Failed to remove company: " + err.message);
+      }
     });
   });
 }
