@@ -1,4 +1,5 @@
 import logging
+import socket
 import smtplib
 import datetime
 from email.mime.multipart import MIMEMultipart
@@ -11,6 +12,32 @@ from config import settings
 from src.reporting.excel import DOMAIN_REPORT_META
 
 logger = logging.getLogger(__name__)
+
+class IPv4OnlySMTP(smtplib.SMTP):
+    """
+    Identical to smtplib.SMTP, except it only ever attempts IPv4 connections.
+
+    Some hosts (Render included) resolve smtp.gmail.com to an IPv6 address with no
+    outbound IPv6 route, which surfaces as "OSError: [Errno 101] Network is
+    unreachable" even though an IPv4 route to the same server works fine. Forcing
+    IPv4 here sidesteps that without changing anything about how SMTP itself works.
+    """
+    def _get_socket(self, host, port, timeout):
+        addr_infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        last_err = None
+        for family, socktype, proto, _canonname, sockaddr in addr_infos:
+            sock = None
+            try:
+                sock = socket.socket(family, socktype, proto)
+                if timeout is not None and timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                    sock.settimeout(timeout)
+                sock.connect(sockaddr)
+                return sock
+            except OSError as e:
+                last_err = e
+                if sock is not None:
+                    sock.close()
+        raise last_err if last_err is not None else OSError("getaddrinfo returned no IPv4 addresses")
 
 # Domain -> (section heading, emoji), used to build the combined email body
 DOMAIN_EMAIL_META = {
@@ -340,8 +367,8 @@ def send_domain_report_email(domain: str, file_bytes: bytes, recipients: List[st
         part.add_header("Content-Disposition", f"attachment; filename= {attachment_filename}")
         msg.attach(part)
 
-        logger.info(f"[{domain}] Connecting to SMTP server {settings.SMTP_HOST}:{settings.SMTP_PORT} via TLS...")
-        server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)
+        logger.info(f"[{domain}] Connecting to SMTP server {settings.SMTP_HOST}:{settings.SMTP_PORT} via TLS (IPv4-only)...")
+        server = IPv4OnlySMTP(settings.SMTP_HOST, settings.SMTP_PORT)
         server.starttls()
         server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
 
