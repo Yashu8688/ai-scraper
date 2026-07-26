@@ -159,11 +159,21 @@ def is_cyber_security_role(title: str) -> bool:
 
     return False
 
-def classify_domain(title: str) -> str:
+def classify_domain(title: str, description: str = "") -> str:
     """
-    Classifies a job title into one of the target domains: 'cyber', 'data', 'java', 'dotnet'.
-    Returns None if the title doesn't match any tracked domain.
-    Seniority/non-role exclusions (EXCLUDE_TITLE_PATTERNS) still apply to every domain.
+    Classifies a job into one of the target domains: 'cyber', 'data', 'java', 'dotnet'.
+    Returns None if nothing matches. Seniority/non-role exclusions (EXCLUDE_TITLE_PATTERNS)
+    still apply.
+
+    Title is checked first, exactly as before — a job that already matches by title is
+    classified identically to today, so this never changes existing behavior.
+
+    Java/.NET job titles are frequently generic ("Software Engineer", "Backend Engineer"),
+    with the actual language only mentioned in the description. So if the title doesn't
+    match any domain, java/dotnet keywords are also checked there as a fallback. Cyber/Data
+    are not re-checked against the description: those are already reliably identified by
+    title alone, and re-scanning the much longer, noisier description for them risks
+    unrelated false positives (e.g. a Java role that merely mentions "our data pipeline").
     """
     title_lower = title.lower()
 
@@ -175,6 +185,13 @@ def classify_domain(title: str) -> str:
         for keyword in keywords:
             if re.search(keyword, title_lower):
                 return domain
+
+    if description:
+        desc_lower = clean_html(description).lower()
+        for domain in ("java", "dotnet"):
+            for keyword in DOMAIN_KEYWORDS[domain]:
+                if re.search(keyword, desc_lower):
+                    return domain
 
     return None
 
@@ -265,7 +282,7 @@ def filter_job(job: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
         return False, "Not in USA", job
 
     # 2. Domain classification (cyber / data / java / dotnet)
-    domain = classify_domain(title)
+    domain = classify_domain(title, description)
     if not domain:
         return False, "Does not match any tracked domain", job
 
