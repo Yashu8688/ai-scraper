@@ -1,6 +1,7 @@
 import sys
 import io
 import logging
+from db import init_db
 from src.orchestrator import run_pipeline
 
 # Force UTF-8 output on Windows to handle special characters in Claude responses
@@ -24,6 +25,10 @@ logger = logging.getLogger("main")
 def main():
     logger.info("Starting Multi-Domain Job Aggregator CLI (cyber / data / java / dotnet)...")
     try:
+        # Idempotent: ensures tables (including domain_reports) exist even if this CLI run
+        # happens before the deployed API service has started up at least once with the
+        # latest schema.
+        init_db()
         success = run_pipeline()
         if success:
             logger.info("Aggregator run completed successfully.")

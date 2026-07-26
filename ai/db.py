@@ -1,7 +1,8 @@
 import os
 import bcrypt
 import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, inspect
+from typing import Any, Dict, Optional
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, Text, LargeBinary, ForeignKey, UniqueConstraint, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from dotenv import load_dotenv
 
@@ -90,9 +91,24 @@ class ActivityLog(Base):
 
 class Setting(Base):
     __tablename__ = "settings"
-    
+
     key = Column(String(255), primary_key=True, index=True)
     value = Column(Text, nullable=True)
+
+class DomainReport(Base):
+    """One row per domain (cyber/data/java/dotnet) per day, holding that day's generated
+    Excel report so the dashboard can resend the latest one for a domain on demand."""
+    __tablename__ = "domain_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    domain = Column(String(20), index=True, nullable=False)  # "cyber", "data", "java", "dotnet"
+    report_date = Column(Date, nullable=False)
+    filename = Column(String(255), nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    job_count = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("domain", "report_date", name="uq_domain_report_date"),)
 
 # Database dependency
 def get_db():
@@ -127,6 +143,54 @@ def init_db():
     except Exception as e:
         print(f"[DB INIT] Seeding failed/skipped: {e}")
         db.rollback()
+    finally:
+        db.close()
+
+def save_domain_report(
+    domain: str,
+    report_date: datetime.date,
+    filename: str,
+    file_bytes: bytes,
+    job_count: Optional[int] = None,
+) -> None:
+    """Upserts the given domain's report for a single day (one row per domain per day)."""
+    db = SessionLocal()
+    try:
+        existing = db.query(DomainReport).filter(
+            DomainReport.domain == domain,
+            DomainReport.report_date == report_date,
+        ).first()
+        if existing:
+            existing.filename = filename
+            existing.file_data = file_bytes
+            existing.job_count = job_count
+        else:
+            db.add(DomainReport(
+                domain=domain,
+                report_date=report_date,
+                filename=filename,
+                file_data=file_bytes,
+                job_count=job_count,
+            ))
+        db.commit()
+    finally:
+        db.close()
+
+def get_latest_domain_report(domain: str) -> Optional[Dict[str, Any]]:
+    """Returns the most recently stored report for a domain, or None if none exists."""
+    db = SessionLocal()
+    try:
+        row = db.query(DomainReport).filter(DomainReport.domain == domain) \
+            .order_by(DomainReport.report_date.desc(), DomainReport.id.desc()).first()
+        if not row:
+            return None
+        return {
+            "domain": row.domain,
+            "report_date": row.report_date,
+            "filename": row.filename,
+            "file_data": row.file_data,
+            "job_count": row.job_count,
+        }
     finally:
         db.close()
 

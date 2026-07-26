@@ -8,6 +8,7 @@ from email import encoders
 from pathlib import Path
 from typing import List, Dict, Any
 from config import settings
+from src.reporting.excel import DOMAIN_REPORT_META
 
 logger = logging.getLogger(__name__)
 
@@ -275,4 +276,70 @@ def send_email_with_report(excel_paths_by_domain: Dict[str, str], jobs_by_domain
         return True
     except Exception as e:
         logger.error(f"Failed to send email: {str(e)}", exc_info=True)
+        return False
+
+def send_domain_report_email(domain: str, file_bytes: bytes) -> bool:
+    """
+    Sends a single, already-stored domain report on demand (triggered from the dashboard's
+    "Domain Jobs" page), to the same recipients as the daily digest. Identified only by
+    role name — the report's original date is deliberately not mentioned in the email.
+    """
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD or not settings.EMAIL_TO:
+        logger.warning(
+            "SMTP credentials or recipient email address are missing in .env settings. "
+            "On-demand domain report email skipped."
+        )
+        return False
+
+    meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
+
+    try:
+        recipients = [e.strip() for e in settings.EMAIL_TO.split(",") if e.strip()]
+
+        msg = MIMEMultipart()
+        msg["From"] = settings.EMAIL_FROM
+        msg["To"] = ", ".join(recipients)
+        msg["Subject"] = f"{meta['emoji']} {meta['sheet']} — Latest Report"
+
+        html_body = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="utf-8"></head>
+        <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333333; background-color: #f4f7f9; margin: 0; padding: 0;">
+            <div style="max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e1e8ed;">
+                <div style="background: linear-gradient(135deg, #1F4E79 0%, #2F4F4F 100%); color: #ffffff; padding: 24px 20px; text-align: center;">
+                    <h1 style="margin: 0; font-size: 20px; font-weight: 600;">{meta['emoji']} {meta['sheet']}</h1>
+                    <p style="margin: 5px 0 0 0; font-size: 13px; opacity: 0.9;">Sent on demand from the dashboard</p>
+                </div>
+                <div style="padding: 24px 20px;">
+                    <p style="margin: 0; font-size: 14px;">Attached is the most recently generated <strong>{meta['sheet']}</strong> report.</p>
+                </div>
+                <div style="background-color: #f4f7f9; padding: 16px 20px; text-align: center; font-size: 11px; color: #888888; border-top: 1px solid #e1e8ed;">
+                    <p style="margin: 0;">Sent by the Multi-Domain Job Aggregator dashboard.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        msg.attach(MIMEText(html_body, "html"))
+
+        attachment_filename = f"{meta['prefix']}.xlsx"
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(file_bytes)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f"attachment; filename= {attachment_filename}")
+        msg.attach(part)
+
+        logger.info(f"[{domain}] Connecting to SMTP server {settings.SMTP_HOST}:{settings.SMTP_PORT} via TLS...")
+        server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)
+        server.starttls()
+        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+
+        server.sendmail(settings.EMAIL_FROM, recipients, msg.as_string())
+        server.quit()
+
+        logger.info(f"[{domain}] On-demand report emailed to {', '.join(recipients)}")
+        return True
+    except Exception as e:
+        logger.error(f"[{domain}] Failed to send on-demand report email: {str(e)}", exc_info=True)
         return False

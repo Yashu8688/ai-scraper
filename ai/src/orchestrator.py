@@ -1,7 +1,10 @@
+import datetime
 import json
 import logging
+from pathlib import Path
 from typing import List, Dict, Any
 from config import settings
+from db import save_domain_report
 from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
 from src.filters import filter_job, verify_job_with_ai
 from src.storage import load_history_signatures, is_duplicate_job, purge_expired_history
@@ -294,7 +297,9 @@ def run_pipeline() -> bool:
         logger.warning("No new matching jobs were found today in any domain. Excel file creation skipped.")
         return True
 
-    # 9. Generate an Excel Report per domain (domains with no jobs are skipped)
+    # 9. Generate an Excel Report per domain (domains with no jobs are skipped), and persist
+    # each one to the database so the dashboard can resend the latest report for a domain
+    # on demand (see api_server.py's /domain-reports endpoints).
     excel_paths_by_domain: Dict[str, str] = {}
     for domain in DOMAINS:
         jobs = final_selection_by_domain[domain]
@@ -302,9 +307,24 @@ def run_pipeline() -> bool:
             logger.info(f"[{domain}] No matching jobs today — skipping Excel generation for this domain.")
             continue
         try:
-            excel_paths_by_domain[domain] = generate_styled_excel(jobs, domain=domain)
+            excel_path = generate_styled_excel(jobs, domain=domain)
+            excel_paths_by_domain[domain] = excel_path
         except Exception as e:
             logger.error(f"[{domain}] Error creating Excel report: {str(e)}", exc_info=True)
+            continue
+
+        try:
+            file_bytes = Path(excel_path).read_bytes()
+            save_domain_report(
+                domain=domain,
+                report_date=datetime.date.today(),
+                filename=Path(excel_path).name,
+                file_bytes=file_bytes,
+                job_count=len(jobs),
+            )
+            logger.info(f"[{domain}] Persisted today's report to the database ({len(file_bytes)} bytes).")
+        except Exception as e:
+            logger.error(f"[{domain}] Failed to persist report to database: {str(e)}", exc_info=True)
 
     if not excel_paths_by_domain:
         logger.warning("No Excel reports were generated today.")

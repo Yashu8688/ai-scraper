@@ -15,15 +15,17 @@ import {
   Menu,
   X,
   ChevronRight,
+  Send,
 } from "lucide-react";
 
 const navItems = [
   {
     label: "Platform",
     items: [
-      { name: "Overview",         href: "/dashboard",           icon: LayoutDashboard, adminOnly: false },
-      { name: "Companies",        href: "/dashboard/companies", icon: Building2,        adminOnly: false },
-      { name: "Job Leads",        href: "/dashboard/jobs",      icon: Briefcase,        adminOnly: false },
+      { name: "Overview",         href: "/dashboard",             icon: LayoutDashboard, adminOnly: false },
+      { name: "Companies",        href: "/dashboard/companies",   icon: Building2,       adminOnly: false },
+      { name: "Job Leads",        href: "/dashboard/jobs",        icon: Briefcase,       adminOnly: false },
+      { name: "Domain Jobs",      href: "/dashboard/domain-jobs", icon: Send,            adminOnly: false },
     ],
   },
   {

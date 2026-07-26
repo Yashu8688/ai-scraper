@@ -15,11 +15,13 @@ import jwt
 current_dir = Path(__file__).resolve().parent
 sys.path.append(str(current_dir))
 
-from db import SessionLocal, User, Company, Job, ActivityLog, Setting, get_db, hash_password, verify_password, init_db
+from db import SessionLocal, User, Company, Job, ActivityLog, Setting, get_db, hash_password, verify_password, init_db, get_latest_domain_report
 from scrape_trigger import scrape_single_company
 from config import settings
 from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
-from src.orchestrator import scrape_try_all
+from src.orchestrator import scrape_try_all, DOMAINS
+from src.reporting import send_domain_report_email
+from src.reporting.excel import DOMAIN_REPORT_META
 
 # Load environmental variables
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretjwtkey123!@#")
@@ -123,6 +125,9 @@ class SettingsUpdate(BaseModel):
     email_from: str
     gemini_api_key: Optional[str] = ""
     claude_api_key: Optional[str] = ""
+
+class DomainReportSendRequest(BaseModel):
+    domain: str  # "cyber", "data", "java", or "dotnet"
 
 
 # --- Security / JWT Helpers ---
@@ -732,6 +737,65 @@ def update_sys_settings(req: SettingsUpdate, db: Session = Depends(get_db), curr
         return {"success": True, "message": "Settings updated successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save settings: {str(e)}")
+
+
+# 8. Domain Jobs Endpoints — resend the latest stored per-domain report on demand
+@router.get("/domain-reports/latest")
+def get_domain_report_status(
+    domain: str = Query(...),
+    current_user: User = Depends(get_current_user)
+):
+    domain = domain.strip().lower()
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unsupported domain: {domain}. Must be one of {DOMAINS}.")
+
+    report = get_latest_domain_report(domain)
+    meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
+
+    if not report:
+        return {"found": False, "domain": domain, "label": meta["sheet"]}
+
+    return {
+        "found": True,
+        "domain": domain,
+        "label": meta["sheet"],
+        "report_date": report["report_date"],
+        "filename": report["filename"],
+        "job_count": report["job_count"],
+    }
+
+@router.post("/domain-reports/send")
+def send_domain_report(
+    req: DomainReportSendRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    domain = req.domain.strip().lower()
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unsupported domain: {domain}. Must be one of {DOMAINS}.")
+
+    meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
+    report = get_latest_domain_report(domain)
+    if not report:
+        return {"success": False, "message": "No excel found"}
+
+    sent = send_domain_report_email(domain, report["file_data"])
+    if not sent:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send email. Check SMTP settings under System Settings."
+        )
+
+    log = ActivityLog(
+        user_id=current_user.id,
+        action="DOMAIN_REPORT_SEND",
+        details=f"Sent latest {meta['sheet']} report (dated {report['report_date']}) via Domain Jobs dashboard trigger."
+    )
+    db.add(log)
+    db.commit()
+
+    return {"success": True, "message": f"{meta['sheet']} report sent successfully."}
+
 
 # Mount Router
 app.include_router(router, prefix="/api")
