@@ -171,23 +171,6 @@ export default function SettingsPage() {
               />
             </div>
           </div>
-          
-          {/* AI Filter Toggle */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[#FFF9F0] border border-[#EADFCF]">
-            <div className="space-y-0.5">
-              <span className="text-xs font-semibold text-[#1E293B]">Claude AI Job Filtering</span>
-              <p className="text-[9px] text-[#5B5F4A] leading-normal font-medium">Secondary Claude validation filters jobs matching experience tags</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useAiFilter}
-                onChange={(e) => setUseAiFilter(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-9 h-5 bg-[#EADFCF] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-[#FFF9F0] after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#2F6F5E]"></div>
-            </label>
-          </div>
         </div>
 
         {/* 2. SMTP block */}
