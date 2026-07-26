@@ -18,10 +18,10 @@ import {
 import api from "@/lib/api";
 
 const DOMAIN_OPTIONS = [
-  { value: "cyber", label: "Cyber Security", emoji: "🇺🇸" },
-  { value: "data", label: "Data Engineering / Analytics", emoji: "📊" },
-  { value: "java", label: "Java Developer", emoji: "☕" },
-  { value: "dotnet", label: ".NET Developer", emoji: "🔷" },
+  { value: "data", label: "Data roles" },
+  { value: "java", label: "Java roles" },
+  { value: "dotnet", label: ".NET roles" },
+  { value: "cyber", label: "Cyber roles" },
 ];
 
 type Recipient = { id: number; email: string; name: string | null };
@@ -143,7 +143,7 @@ export default function DomainJobsPage() {
             >
               {DOMAIN_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
-                  {opt.emoji} {opt.label}
+                  {opt.label}
                 </option>
               ))}
             </select>
