@@ -278,23 +278,33 @@ def send_email_with_report(excel_paths_by_domain: Dict[str, str], jobs_by_domain
         logger.error(f"Failed to send email: {str(e)}", exc_info=True)
         return False
 
-def send_domain_report_email(domain: str, file_bytes: bytes) -> bool:
+def send_domain_report_email(domain: str, file_bytes: bytes, recipients: List[str] = None) -> bool:
     """
     Sends a single, already-stored domain report on demand (triggered from the dashboard's
-    "Domain Jobs" page), to the same recipients as the daily digest. Identified only by
-    role name — the report's original date is deliberately not mentioned in the email.
+    "Domain Jobs" page). Identified only by role name — the report's original date is
+    deliberately not mentioned in the email.
+
+    Args:
+        recipients: explicit list of addresses to send to (the clients picked on the
+            dashboard). When omitted, falls back to the daily digest's EMAIL_TO list.
     """
-    if not settings.SMTP_USER or not settings.SMTP_PASSWORD or not settings.EMAIL_TO:
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         logger.warning(
-            "SMTP credentials or recipient email address are missing in .env settings. "
-            "On-demand domain report email skipped."
+            "SMTP credentials are missing in .env settings. On-demand domain report email skipped."
         )
         return False
 
     meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
 
     try:
-        recipients = [e.strip() for e in settings.EMAIL_TO.split(",") if e.strip()]
+        if recipients:
+            recipients = [e.strip() for e in recipients if e and e.strip()]
+        else:
+            recipients = [e.strip() for e in (settings.EMAIL_TO or "").split(",") if e.strip()]
+
+        if not recipients:
+            logger.warning(f"[{domain}] No recipients given and EMAIL_TO is empty. Email skipped.")
+            return False
 
         msg = MIMEMultipart()
         msg["From"] = settings.EMAIL_FROM

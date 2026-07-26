@@ -11,6 +11,9 @@ import {
   Loader2,
   CalendarClock,
   ListChecks,
+  Plus,
+  Trash2,
+  Users,
 } from "lucide-react";
 import api from "@/lib/api";
 
@@ -21,10 +24,15 @@ const DOMAIN_OPTIONS = [
   { value: "dotnet", label: ".NET Developer", emoji: "🔷" },
 ];
 
+type Recipient = { id: number; email: string; name: string | null };
+
 export default function DomainJobsPage() {
   const queryClient = useQueryClient();
   const [domain, setDomain] = useState("cyber");
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [newEmail, setNewEmail] = useState("");
+  const [newName, setNewName] = useState("");
 
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ["domainReportStatus", domain],
@@ -34,9 +42,55 @@ export default function DomainJobsPage() {
     },
   });
 
+  const { data: recipients = [], isLoading: recipientsLoading } = useQuery<Recipient[]>({
+    queryKey: ["recipients"],
+    queryFn: async () => {
+      const response = await api.get("/recipients");
+      return response.data;
+    },
+  });
+
+  const addRecipient = useMutation({
+    mutationFn: async () => {
+      const response = await api.post("/recipients", {
+        email: newEmail.trim(),
+        name: newName.trim() || null,
+      });
+      return response.data;
+    },
+    onSuccess: (created: Recipient) => {
+      setNewEmail("");
+      setNewName("");
+      setFeedback(null);
+      // Newly added clients start selected — that is why they were added.
+      setSelectedIds((prev) => [...prev, created.id]);
+      queryClient.invalidateQueries({ queryKey: ["recipients"] });
+    },
+    onError: (err: any) => {
+      setFeedback({
+        type: "error",
+        message: err.response?.data?.detail || "Could not add this email.",
+      });
+    },
+  });
+
+  const removeRecipient = useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/recipients/${id}`);
+      return id;
+    },
+    onSuccess: (id) => {
+      setSelectedIds((prev) => prev.filter((x) => x !== id));
+      queryClient.invalidateQueries({ queryKey: ["recipients"] });
+    },
+  });
+
   const sendMutation = useMutation({
     mutationFn: async () => {
-      const response = await api.post("/domain-reports/send", { domain });
+      const response = await api.post("/domain-reports/send", {
+        domain,
+        recipient_ids: selectedIds,
+      });
       return response.data;
     },
     onSuccess: (data) => {
@@ -126,6 +180,97 @@ export default function DomainJobsPage() {
               <AlertCircle className="h-3.5 w-3.5" />
               <span>No excel found for {selected?.label} yet.</span>
             </div>
+          )}
+        </div>
+
+        {/* Client recipients */}
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A] flex items-center gap-1.5">
+            <Users className="h-3 w-3" />
+            Send to clients
+          </label>
+
+          <div className="rounded-xl border border-[#EADFCF] bg-[#FFF9F0] divide-y divide-[#EADFCF]">
+            {recipientsLoading ? (
+              <div className="flex items-center gap-2 p-3 text-xs text-[#5B5F4A]">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Loading clients…</span>
+              </div>
+            ) : recipients.length === 0 ? (
+              <div className="p-3 text-xs text-[#5B5F4A]">
+                No clients saved yet. Add one below — the report goes to the addresses you tick here.
+              </div>
+            ) : (
+              recipients.map((r) => (
+                <label
+                  key={r.id}
+                  className="flex items-center gap-2.5 p-2.5 cursor-pointer hover:bg-[#FFFDFC] transition"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(r.id)}
+                    onChange={(e) =>
+                      setSelectedIds((prev) =>
+                        e.target.checked ? [...prev, r.id] : prev.filter((x) => x !== r.id)
+                      )
+                    }
+                    className="h-3.5 w-3.5 accent-[#2F6F5E] cursor-pointer"
+                  />
+                  <span className="flex-1 min-w-0 text-xs">
+                    <span className="font-semibold text-[#1E293B] block truncate">{r.email}</span>
+                    {r.name && <span className="text-[#5B5F4A] text-[11px]">{r.name}</span>}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      removeRecipient.mutate(r.id);
+                    }}
+                    className="text-[#C53030] hover:bg-red-50 rounded-lg p-1 transition shrink-0"
+                    title={`Remove ${r.email}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </label>
+              ))
+            )}
+          </div>
+
+          {/* Add a new client */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="email"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              placeholder="client@company.com"
+              className="flex-1 rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
+            />
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Name (optional)"
+              className="sm:w-40 rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
+            />
+            <button
+              type="button"
+              onClick={() => addRecipient.mutate()}
+              disabled={!newEmail.trim() || addRecipient.isPending}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs font-semibold text-[#1E293B] hover:bg-[#FFF9F0] transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {addRecipient.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Plus className="h-3.5 w-3.5" />
+              )}
+              <span>Add</span>
+            </button>
+          </div>
+
+          {selectedIds.length === 0 && recipients.length > 0 && (
+            <p className="text-[11px] text-[#5B5F4A]">
+              No client ticked — the report will go to the default digest recipients.
+            </p>
           )}
         </div>
 

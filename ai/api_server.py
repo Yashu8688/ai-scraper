@@ -15,7 +15,7 @@ import jwt
 current_dir = Path(__file__).resolve().parent
 sys.path.append(str(current_dir))
 
-from db import SessionLocal, User, Company, Job, ActivityLog, Setting, get_db, hash_password, verify_password, init_db, get_latest_domain_report
+from db import SessionLocal, User, Company, Job, ActivityLog, Setting, Recipient, get_db, hash_password, verify_password, init_db, get_latest_domain_report
 from scrape_trigger import scrape_single_company
 from config import settings
 from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
@@ -128,6 +128,24 @@ class SettingsUpdate(BaseModel):
 
 class DomainReportSendRequest(BaseModel):
     domain: str  # "cyber", "data", "java", or "dotnet"
+    # Recipient ids picked on the dashboard. Empty/omitted falls back to the daily
+    # digest's EMAIL_TO list, preserving the previous behaviour.
+    recipient_ids: Optional[List[int]] = None
+
+class RecipientCreate(BaseModel):
+    # Plain str + a regex check: pydantic's EmailStr needs the optional email-validator
+    # package, which is not in requirements.txt and would break the API on deploy.
+    email: str
+    name: Optional[str] = None
+
+class RecipientResponse(BaseModel):
+    id: int
+    email: str
+    name: Optional[str]
+    created_at: datetime.datetime
+
+    class Config:
+        orm_mode = True
 
 
 # --- Security / JWT Helpers ---
@@ -764,6 +782,55 @@ def get_domain_report_status(
         "job_count": report["job_count"],
     }
 
+@router.get("/recipients", response_model=List[RecipientResponse])
+def list_recipients(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Saved client addresses that domain reports can be sent to."""
+    return db.query(Recipient).order_by(Recipient.name.asc(), Recipient.email.asc()).all()
+
+@router.post("/recipients", response_model=RecipientResponse)
+def create_recipient(
+    req: RecipientCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    import re
+    email = req.email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if db.query(Recipient).filter(Recipient.email == email).first():
+        raise HTTPException(status_code=400, detail="This email address is already saved.")
+
+    recipient = Recipient(email=email, name=(req.name or "").strip() or None)
+    db.add(recipient)
+    db.commit()
+    db.refresh(recipient)
+
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="RECIPIENT_ADD",
+        details=f"Added report recipient {recipient.email}."
+    ))
+    db.commit()
+    return recipient
+
+@router.delete("/recipients/{id}")
+def delete_recipient(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    recipient = db.query(Recipient).filter(Recipient.id == id).first()
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found.")
+
+    email = recipient.email
+    db.delete(recipient)
+    db.commit()
+
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="RECIPIENT_DELETE",
+        details=f"Removed report recipient {email}."
+    ))
+    db.commit()
+    return {"success": True, "message": f"{email} removed."}
+
 @router.post("/domain-reports/send")
 def send_domain_report(
     req: DomainReportSendRequest,
@@ -779,22 +846,39 @@ def send_domain_report(
     if not report:
         return {"success": False, "message": "No excel found"}
 
-    sent = send_domain_report_email(domain, report["file_data"])
+    # Resolve the clients picked on the dashboard. With none selected, fall back to the
+    # daily digest's EMAIL_TO list so existing behaviour is unchanged.
+    recipient_emails: List[str] = []
+    if req.recipient_ids:
+        rows = db.query(Recipient).filter(Recipient.id.in_(req.recipient_ids)).all()
+        found_ids = {r.id for r in rows}
+        missing = [i for i in req.recipient_ids if i not in found_ids]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Unknown recipient id(s): {missing}")
+        recipient_emails = [r.email for r in rows]
+
+    sent = send_domain_report_email(domain, report["file_data"], recipients=recipient_emails or None)
     if not sent:
         raise HTTPException(
             status_code=500,
             detail="Failed to send email. Check SMTP settings under System Settings."
         )
 
+    target = ", ".join(recipient_emails) if recipient_emails else "the default digest recipients"
     log = ActivityLog(
         user_id=current_user.id,
         action="DOMAIN_REPORT_SEND",
-        details=f"Sent latest {meta['sheet']} report (dated {report['report_date']}) via Domain Jobs dashboard trigger."
+        details=f"Sent latest {meta['sheet']} report (dated {report['report_date']}) to {target}."
     )
     db.add(log)
     db.commit()
 
-    return {"success": True, "message": f"{meta['sheet']} report sent successfully."}
+    return {
+        "success": True,
+        "message": f"{meta['sheet']} report sent to {len(recipient_emails) or 'default'} recipient(s)."
+                   if recipient_emails else f"{meta['sheet']} report sent successfully.",
+        "recipients": recipient_emails,
+    }
 
 
 # Mount Router

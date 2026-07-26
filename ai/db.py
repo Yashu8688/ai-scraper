@@ -110,6 +110,19 @@ class DomainReport(Base):
 
     __table_args__ = (UniqueConstraint("domain", "report_date", name="uq_domain_report_date"),)
 
+class Recipient(Base):
+    """A saved client email address that domain reports can be sent to on demand.
+
+    Kept separate from the EMAIL_TO setting (which drives the automated daily digest) so
+    adding a client here never changes who receives the scheduled run.
+    """
+    __tablename__ = "recipients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    name = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
 # Database dependency
 def get_db():
     db = SessionLocal()
