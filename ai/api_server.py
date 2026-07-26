@@ -18,7 +18,7 @@ sys.path.append(str(current_dir))
 from db import SessionLocal, User, Company, Job, ActivityLog, Setting, get_db, hash_password, verify_password, init_db
 from scrape_trigger import scrape_single_company
 from config import settings
-from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, PlaywrightScraper
+from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
 from src.orchestrator import scrape_try_all
 
 # Load environmental variables

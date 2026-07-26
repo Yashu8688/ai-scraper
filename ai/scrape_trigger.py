@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).resolve().parent))
 
 from db import SessionLocal, Company, Job, ActivityLog
 from config import settings
-from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, PlaywrightScraper
+from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
 from src.filters import filter_job, verify_job_with_ai
 
 logger = logging.getLogger("scrape_trigger")
@@ -27,17 +27,26 @@ def scrape_single_company(company_id: int, user_id: int = None) -> Dict[str, Any
         
     logger.info(f"Triggering manual scrape for: {company.name} (ATS: {company.ats})")
     
-    # 1. Instantiate correct Scraper
-    scraper = None
-    if company.ats == "greenhouse":
-        scraper = GreenhouseScraper(company.name, company.token, company.careers_url)
-    elif company.ats == "lever":
-        scraper = LeverScraper(company.name, company.token, company.careers_url)
-    elif company.ats == "ashby":
-        scraper = AshbyScraper(company.name, company.token, company.careers_url)
-    else:
-        scraper = PlaywrightScraper(company.name, company.token, company.careers_url)
-        
+    # 1. Instantiate correct Scraper. Only real ATS APIs are supported — a company without
+    # one cannot be scraped reliably (see the note in src/orchestrator.run_pipeline).
+    api_scrapers = {
+        "greenhouse": GreenhouseScraper,
+        "lever": LeverScraper,
+        "ashby": AshbyScraper,
+    }
+    scraper_cls = api_scrapers.get((company.ats or "").lower().strip())
+    if not scraper_cls or not (company.token or "").strip():
+        db.close()
+        return {
+            "success": False,
+            "error": (
+                f"{company.name} has no usable ATS API token (ats='{company.ats}'). "
+                f"Set the ATS to greenhouse, lever, or ashby with a valid token to scrape it."
+            ),
+        }
+    scraper = scraper_cls(company.name, company.token, company.careers_url)
+
+
     try:
         # 2. Run scraping
         raw_jobs = scraper.scrape()

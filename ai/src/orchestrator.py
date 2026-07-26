@@ -2,15 +2,22 @@ import json
 import logging
 from typing import List, Dict, Any
 from config import settings
-from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, PlaywrightScraper
+from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
 from src.filters import filter_job, verify_job_with_ai
-from src.storage import load_history_signatures, is_duplicate_job
+from src.storage import load_history_signatures, is_duplicate_job, purge_expired_history
 from src.reporting import generate_styled_excel, send_email_with_report
 
 logger = logging.getLogger(__name__)
 
 # All domains the pipeline tracks and reports on separately.
 DOMAINS = ["cyber", "data", "java", "dotnet"]
+
+# Target size of every domain's Excel sheet. Each row is a distinct company, so these are
+# also the minimum/maximum number of unique companies per sheet. When the 14-day company
+# cooldown leaves a sheet short of the minimum, cooled-down companies are pulled back in
+# (see the top-up step in run_pipeline) rather than shipping a thin report.
+MIN_JOBS_PER_SHEET = 30
+MAX_JOBS_PER_SHEET = 40
 
 def rate_job_relevance(job: Dict[str, Any]) -> int:
     """
@@ -95,42 +102,78 @@ def run_pipeline() -> bool:
     companies = all_companies
     logger.info(f"Scraping all {len(companies)} companies.")
     
-    # 2. Load Excel History for Deduplication (Last 90 Days) & Company Cooldown (Last 14 Days = Alternate Weeks)
+    # 2a. Purge expired history first, so a company whose report just aged out is eligible today.
+    # Retention must cover the cooldown window, otherwise the cooldown data would be deleted
+    # before it could ever apply.
+    cooldown_days = settings.COMPANY_COOLDOWN_DAYS
+    retention_days = max(settings.HISTORY_RETENTION_DAYS, cooldown_days)
+    if retention_days != settings.HISTORY_RETENTION_DAYS:
+        logger.warning(
+            f"HISTORY_RETENTION_DAYS ({settings.HISTORY_RETENTION_DAYS}) is shorter than "
+            f"COMPANY_COOLDOWN_DAYS ({cooldown_days}); using {retention_days} days for both."
+        )
+    purge_expired_history(retention_days)
+
+    # 2b. Load Excel History for Deduplication & Company Cooldown.
     # All three are dicts keyed by domain (cyber/data/java/dotnet) — see src/storage/history.py
-    seen_titles_companies, seen_links, recent_companies = load_history_signatures(settings.COMPANY_COOLDOWN_DAYS)
+    seen_titles_companies, seen_links, recent_companies = load_history_signatures(cooldown_days, retention_days)
     for domain in DOMAINS:
         logger.info(f"[{domain}] Alternate Week Filter: {len(recent_companies[domain])} companies featured within the last {settings.COMPANY_COOLDOWN_DAYS} days will be skipped.")
 
-    # 3. Scrape Jobs from all configured companies
+    # 3. Scrape Jobs from all configured companies.
+    #
+    # Only real ATS APIs are used. The old Playwright fallback scraped every <a> tag on a
+    # careers page and treated any link containing "security" as a job, which produced
+    # nav-menu links ("Security", "Information Security Careers") with a fake
+    # location of "USA (Verify)" — those passed the filters and reached the report.
+    # It also caused ~131 errors/run (dead domains, bot blocks, 30s timeouts) and added
+    # ~3 hours of runtime for <2% of raw jobs. Companies without a usable ATS token are
+    # now skipped and reported so they can be fixed via the dashboard.
     raw_jobs: List[Dict[str, Any]] = []
+    API_SCRAPERS = {
+        "greenhouse": GreenhouseScraper,
+        "lever": LeverScraper,
+        "ashby": AshbyScraper,
+    }
+
+    skipped_companies: List[str] = []
+    scraped_count = 0
 
     for comp in companies:
         name = comp.get("name")
-        ats_type = comp.get("ats", "").lower()
-        token = comp.get("token")
+        ats_type = (comp.get("ats") or "").lower().strip()
+        token = (comp.get("token") or "").strip()
         careers_url = comp.get("careers_url", "")
 
-        scraper = None
-        if ats_type == "greenhouse":
-            scraper = GreenhouseScraper(name, token, careers_url)
-        elif ats_type == "lever":
-            scraper = LeverScraper(name, token, careers_url)
-        elif ats_type == "ashby":
-            scraper = AshbyScraper(name, token, careers_url)
-        else:
-            scraper = PlaywrightScraper(name, token, careers_url)
+        scraper_cls = API_SCRAPERS.get(ats_type)
+        if not scraper_cls or not token:
+            skipped_companies.append(f"{name} (ats={ats_type or 'none'}, token={'yes' if token else 'missing'})")
+            continue
 
         try:
-            company_jobs = scraper.scrape()
+            company_jobs = scraper_cls(name, token, careers_url).scrape()
             raw_jobs.extend(company_jobs)
+            scraped_count += 1
         except Exception as e:
             logger.error(f"Failed to run scraper for {name}: {str(e)}", exc_info=True)
 
-    logger.info(f"Collected a total of {len(raw_jobs)} raw jobs from all scrapers.")
+    logger.info(f"Collected a total of {len(raw_jobs)} raw jobs from {scraped_count} ATS-backed companies.")
+    if skipped_companies:
+        logger.warning(
+            f"Skipped {len(skipped_companies)} companies with no usable ATS API token. "
+            f"Add a greenhouse/lever/ashby token via the dashboard to include them. "
+            f"First 10: {skipped_companies[:10]}"
+        )
 
     # 4. Regex Filter: classifies each job into a domain (cyber/data/java/dotnet), applies
-    # per-domain company cooldown + dedup + USA + experience checks.
+    # per-domain dedup + USA + experience checks.
+    #
+    # Jobs are split into two tiers. The company cooldown (14 days) is a *preference*, not a
+    # hard filter: if enforcing it would push a sheet below MIN_JOBS_PER_SHEET, cooled-down
+    # companies are added back to top the sheet up. The duplicate check stays a hard filter —
+    # a link that already went out must never be repeated.
     regex_passed_by_domain: Dict[str, List[Dict[str, Any]]] = {d: [] for d in DOMAINS}
+    cooldown_reserve_by_domain: Dict[str, List[Dict[str, Any]]] = {d: [] for d in DOMAINS}
 
     for job in raw_jobs:
         comp_name_lower = job.get("company", "").strip().lower()
@@ -142,80 +185,110 @@ def run_pipeline() -> bool:
 
         domain = enriched_job["domain"]
 
-        # Check: Company Cooldown (Alternate Weeks / 14 Days), scoped to this domain
-        if comp_name_lower in recent_companies[domain]:
-            logger.debug(f"[{domain}] Skipping {job.get('company')}: featured in email digest within last {settings.COMPANY_COOLDOWN_DAYS} days.")
+        # Hard filter: never repeat a link/title+company still inside the retention window.
+        if is_duplicate_job(enriched_job, seen_titles_companies[domain], seen_links[domain]):
             continue
 
-        # Check: Duplicate check (history), scoped to this domain
-        if is_duplicate_job(enriched_job, seen_titles_companies[domain], seen_links[domain]):
+        # Soft filter: company featured within the cooldown window goes to the reserve pool.
+        if comp_name_lower in recent_companies[domain]:
+            cooldown_reserve_by_domain[domain].append(enriched_job)
             continue
 
         regex_passed_by_domain[domain].append(enriched_job)
 
     for domain in DOMAINS:
-        logger.info(f"[{domain}] Regex filter passed: {len(regex_passed_by_domain[domain])} jobs.")
+        logger.info(
+            f"[{domain}] Regex filter passed: {len(regex_passed_by_domain[domain])} jobs "
+            f"({len(cooldown_reserve_by_domain[domain])} more held in cooldown reserve)."
+        )
 
     # How many jobs to forward per company to Claude for validation
-    # Setting to 2 gives Claude more candidates per company, helping reach 30-35 final jobs
+    # Setting to 2 gives Claude more candidates per company, helping reach the sheet minimum
     JOBS_PER_COMPANY_FOR_CLAUDE = 2
+
+    def select_one_per_company(jobs: List[Dict[str, Any]], exclude: set) -> List[Dict[str, Any]]:
+        """Keeps only the single highest-rated job per company, skipping excluded companies."""
+        best_by_company: Dict[str, Dict[str, Any]] = {}
+        for job in jobs:
+            comp = job["company"]
+            if comp in exclude:
+                continue
+            if comp not in best_by_company or rate_job_relevance(job) > rate_job_relevance(best_by_company[comp]):
+                best_by_company[comp] = job
+        return list(best_by_company.values())
+
+    def run_claude_filter(domain: str, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Validates candidates with the domain-aware Claude prompt (no-op if AI filter is off)."""
+        if not (settings.USE_AI_FILTER and settings.CLAUDE_API_KEY):
+            return list(jobs)
+
+        approved: List[Dict[str, Any]] = []
+        for job in jobs:
+            ai_match, ai_reason = verify_job_with_ai(job)
+            if not ai_match:
+                logger.info(f"[{domain}] Claude rejected: '{job['title']}' at {job['company']}")
+                continue
+            job["experience_metadata"] = f"{job['experience_metadata']} | {ai_reason}"
+            approved.append(job)
+        return approved
+
+    def cap_per_company(jobs: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+        """Forwards at most `limit` best-rated jobs per company to Claude."""
+        by_company: Dict[str, List[Dict[str, Any]]] = {}
+        for job in jobs:
+            by_company.setdefault(job["company"], []).append(job)
+
+        capped: List[Dict[str, Any]] = []
+        for comp_jobs in by_company.values():
+            capped.extend(sorted(comp_jobs, key=rate_job_relevance, reverse=True)[:limit])
+        return capped
+
+    def sort_newest_first(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return sorted(jobs, key=lambda j: j.get("date_posted", "") or "0000-00-00", reverse=True)
 
     final_selection_by_domain: Dict[str, List[Dict[str, Any]]] = {}
 
     for domain in DOMAINS:
-        regex_passed = regex_passed_by_domain[domain]
+        # 5-7. Cap per company -> Claude validation -> one job per company.
+        primary = cap_per_company(regex_passed_by_domain[domain], JOBS_PER_COMPANY_FOR_CLAUDE)
+        logger.info(f"[{domain}] Sending {len(primary)} jobs to Claude (top {JOBS_PER_COMPANY_FOR_CLAUDE} per company).")
 
-        # 5. Company Diversity Filter BEFORE Claude (pick best N jobs per company)
-        # This prevents Claude from analyzing 10 Datadog jobs when only 1 will be used.
-        jobs_by_company: Dict[str, List[Dict[str, Any]]] = {}
-        for job in regex_passed:
-            comp_name = job["company"]
-            jobs_by_company.setdefault(comp_name, []).append(job)
+        approved = run_claude_filter(domain, primary)
+        logger.info(f"[{domain}] After Claude AI filter: {len(approved)} jobs approved.")
 
-        pre_diversity_jobs: List[Dict[str, Any]] = []
-        for comp_name, comp_jobs in jobs_by_company.items():
-            sorted_comp_jobs = sorted(comp_jobs, key=rate_job_relevance, reverse=True)
-            top_jobs = sorted_comp_jobs[:JOBS_PER_COMPANY_FOR_CLAUDE]
-            pre_diversity_jobs.extend(top_jobs)
-            if len(comp_jobs) > 1:
-                logger.info(
-                    f"[{domain}] Pre-Claude: Picked top {len(top_jobs)} job(s) for {comp_name} "
-                    f"from {len(comp_jobs)} candidates."
-                )
+        selected = select_one_per_company(approved, exclude=set())
+        logger.info(f"[{domain}] {len(selected)} unique companies after diversity enforcement.")
 
-        logger.info(f"[{domain}] Sending {len(pre_diversity_jobs)} jobs to Claude for validation (top {JOBS_PER_COMPANY_FOR_CLAUDE} per company).")
+        # 8. Top-up: if the cooldown left this sheet short of the minimum, pull the best
+        # cooled-down companies back in (newest first) until the sheet reaches MIN_JOBS_PER_SHEET.
+        if len(selected) < MIN_JOBS_PER_SHEET and cooldown_reserve_by_domain[domain]:
+            shortfall = MIN_JOBS_PER_SHEET - len(selected)
+            used_companies = {j["company"] for j in selected}
+            logger.info(
+                f"[{domain}] Only {len(selected)} companies available (minimum is {MIN_JOBS_PER_SHEET}). "
+                f"Topping up from {len(cooldown_reserve_by_domain[domain])} cooled-down candidates."
+            )
 
-        # 6. Claude AI Filter (domain-aware prompt — see src/filters/ai_filter.py)
-        valid_jobs: List[Dict[str, Any]] = []
-        for enriched_job in pre_diversity_jobs:
-            if settings.USE_AI_FILTER and settings.CLAUDE_API_KEY:
-                ai_match, ai_reason = verify_job_with_ai(enriched_job)
-                if not ai_match:
-                    logger.info(f"[{domain}] Claude rejected: '{enriched_job['title']}' at {enriched_job['company']}")
-                    continue
-                enriched_job["experience_metadata"] = f"{enriched_job['experience_metadata']} | {ai_reason}"
+            reserve = cap_per_company(cooldown_reserve_by_domain[domain], JOBS_PER_COMPANY_FOR_CLAUDE)
+            # Only validate as many reserve companies as we plausibly need, newest first.
+            reserve = sort_newest_first(reserve)[: max(shortfall * 3, shortfall)]
 
-            valid_jobs.append(enriched_job)
+            reserve_approved = run_claude_filter(domain, reserve)
+            topped_up = select_one_per_company(reserve_approved, exclude=used_companies)
+            topped_up = sort_newest_first(topped_up)[:shortfall]
 
-        logger.info(f"[{domain}] After Claude AI filter: {len(valid_jobs)} jobs approved.")
+            selected.extend(topped_up)
+            logger.info(f"[{domain}] Added {len(topped_up)} cooled-down companies to reach {len(selected)}.")
 
-        # 7. Final Company Diversity Enforcement (1 best Claude-approved job per company)
-        final_by_company: Dict[str, Dict[str, Any]] = {}
-        for job in valid_jobs:
-            comp = job["company"]
-            if comp not in final_by_company or rate_job_relevance(job) > rate_job_relevance(final_by_company[comp]):
-                final_by_company[comp] = job
+        final_selection_by_domain[domain] = sort_newest_first(selected)[:MAX_JOBS_PER_SHEET]
 
-        diverse_final = list(final_by_company.values())
-        logger.info(f"[{domain}] After final diversity enforcement: {len(diverse_final)} unique companies with approved jobs.")
-
-        # 8. Sort by newest first and select top 40 jobs
-        def get_sort_key(j: Dict[str, Any]) -> str:
-            return j.get("date_posted", "") or "0000-00-00"
-
-        sorted_jobs = sorted(diverse_final, key=get_sort_key, reverse=True)
-        final_selection_by_domain[domain] = sorted_jobs[:40]
-        logger.info(f"[{domain}] Selected {len(final_selection_by_domain[domain])} jobs for report generation.")
+        count = len(final_selection_by_domain[domain])
+        if count < MIN_JOBS_PER_SHEET:
+            logger.warning(
+                f"[{domain}] Only {count} jobs available — below the {MIN_JOBS_PER_SHEET} minimum. "
+                f"Add more {domain} companies with ATS tokens via the dashboard to raise this."
+            )
+        logger.info(f"[{domain}] Selected {count} jobs for report generation.")
 
     if not any(final_selection_by_domain.values()):
         logger.warning("No new matching jobs were found today in any domain. Excel file creation skipped.")
@@ -249,10 +322,15 @@ def run_pipeline() -> bool:
 
 def scrape_try_all(company_name: str, token: str, careers_url: str) -> tuple:
     """
-    Tries each available scraper (Greenhouse, Lever, Ashby) in sequence using the provided token,
-    and returns the first one that successfully returns valid jobs. Falls back to Playwright if all fail.
+    Tries each ATS API scraper (Greenhouse, Lever, Ashby) in sequence using the provided token
+    and returns the first one that returns valid jobs.
+
+    There is deliberately no browser fallback: scraping a raw careers page yielded nav links
+    rather than real listings (see the note in run_pipeline). A company that matches no ATS
+    here returns (None, []) so the caller can report that a valid token is required.
+
     Returns:
-        (successful_ats_type, jobs_list)
+        (successful_ats_type, jobs_list) — (None, []) if no ATS API matched.
     """
     # 1. Greenhouse
     if token:
@@ -287,26 +365,8 @@ def scrape_try_all(company_name: str, token: str, careers_url: str) -> tuple:
         except Exception as e:
             logger.warning(f"Orchestration try-all: Ashby failed for {company_name}: {e}")
 
-    # 4. Playwright fallback
-    if careers_url:
-        try:
-            logger.info(f"Orchestration try-all: attempting Playwright fallback for {company_name} using URL {careers_url}")
-            scraper = PlaywrightScraper(company_name, token, careers_url)
-            jobs = scraper.scrape()
-            if jobs:
-                return "playwright", jobs
-            
-            # If Playwright runs but returns no cyber jobs, check if URL is reachable (HTTP 200)
-            # as general reachability counts as a successful setup for custom sites.
-            import requests
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            resp = requests.get(careers_url, headers=headers, timeout=10, allow_redirects=True)
-            if resp.status_code == 200:
-                logger.info(f"Orchestration try-all: Playwright URL is reachable, but no cyber jobs found today. Saving as playwright.")
-                return "playwright", []
-        except Exception as e:
-            logger.warning(f"Orchestration try-all: Playwright failed for {company_name}: {e}")
-
+    logger.warning(
+        f"Orchestration try-all: no ATS API matched for {company_name}. "
+        f"A valid Greenhouse, Lever, or Ashby token is required for it to be scraped daily."
+    )
     return None, []

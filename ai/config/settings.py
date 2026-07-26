@@ -120,6 +120,22 @@ class SettingsModule:
         return int(os.getenv("COMPANY_COOLDOWN_DAYS", "14"))
 
     @property
+    def HISTORY_RETENTION_DAYS(self) -> int:
+        """
+        How long a sent job stays in history. Report files older than this are deleted before
+        each run, which also makes those links/companies eligible to appear again.
+        Must be >= COMPANY_COOLDOWN_DAYS, otherwise the cooldown could never see its full
+        window; the pipeline clamps it at startup.
+        """
+        val = self._get_db_value("history_retention_days")
+        if val is not None:
+            try:
+                return int(val)
+            except ValueError:
+                pass
+        return int(os.getenv("HISTORY_RETENTION_DAYS", "14"))
+
+    @property
     def CLAUDE_API_KEY(self) -> str:
         val = self._get_db_value("claude_api_key")
         if val is not None:
