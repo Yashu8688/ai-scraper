@@ -9,6 +9,9 @@ from src.reporting import generate_styled_excel, send_email_with_report
 
 logger = logging.getLogger(__name__)
 
+# All domains the pipeline tracks and reports on separately.
+DOMAINS = ["cyber", "data", "java", "dotnet"]
+
 def rate_job_relevance(job: Dict[str, Any]) -> int:
     """
     Heuristic to score job relevance. Helps in selecting the best job
@@ -93,18 +96,20 @@ def run_pipeline() -> bool:
     logger.info(f"Scraping all {len(companies)} companies.")
     
     # 2. Load Excel History for Deduplication (Last 90 Days) & Company Cooldown (Last 14 Days = Alternate Weeks)
+    # All three are dicts keyed by domain (cyber/data/java/dotnet) — see src/storage/history.py
     seen_titles_companies, seen_links, recent_companies = load_history_signatures(settings.COMPANY_COOLDOWN_DAYS)
-    logger.info(f"Alternate Week Filter: {len(recent_companies)} companies featured in email reports within the last {settings.COMPANY_COOLDOWN_DAYS} days will be skipped.")
-    
+    for domain in DOMAINS:
+        logger.info(f"[{domain}] Alternate Week Filter: {len(recent_companies[domain])} companies featured within the last {settings.COMPANY_COOLDOWN_DAYS} days will be skipped.")
+
     # 3. Scrape Jobs from all configured companies
     raw_jobs: List[Dict[str, Any]] = []
-    
+
     for comp in companies:
         name = comp.get("name")
         ats_type = comp.get("ats", "").lower()
         token = comp.get("token")
         careers_url = comp.get("careers_url", "")
-        
+
         scraper = None
         if ats_type == "greenhouse":
             scraper = GreenhouseScraper(name, token, careers_url)
@@ -114,122 +119,131 @@ def run_pipeline() -> bool:
             scraper = AshbyScraper(name, token, careers_url)
         else:
             scraper = PlaywrightScraper(name, token, careers_url)
-            
+
         try:
             company_jobs = scraper.scrape()
             raw_jobs.extend(company_jobs)
         except Exception as e:
             logger.error(f"Failed to run scraper for {name}: {str(e)}", exc_info=True)
-            
+
     logger.info(f"Collected a total of {len(raw_jobs)} raw jobs from all scrapers.")
-    
-    # 4. Regex Filter: Company Cooldown + Deduplicate + USA + CyberSec + Experience
-    regex_passed: List[Dict[str, Any]] = []
+
+    # 4. Regex Filter: classifies each job into a domain (cyber/data/java/dotnet), applies
+    # per-domain company cooldown + dedup + USA + experience checks.
+    regex_passed_by_domain: Dict[str, List[Dict[str, Any]]] = {d: [] for d in DOMAINS}
 
     for job in raw_jobs:
         comp_name_lower = job.get("company", "").strip().lower()
 
-        # Check 0: Company Cooldown (Alternate Weeks / 14 Days)
-        if comp_name_lower in recent_companies:
-            logger.debug(f"Skipping {job.get('company')}: featured in email digest within last {settings.COMPANY_COOLDOWN_DAYS} days.")
-            continue
-
-        # Check 1: Duplicate check (history)
-        if is_duplicate_job(job, seen_titles_companies, seen_links):
-            continue
-
-        # Check 2: Core Criteria Filter (USA + Cyber Security + 1-6 Years Exp)
+        # Core Criteria Filter (USA + Domain classification + 1-6 Years Exp)
         is_match, reason, enriched_job = filter_job(job)
         if not is_match:
             continue
 
-        regex_passed.append(enriched_job)
+        domain = enriched_job["domain"]
 
-    logger.info(f"Regex filter passed: {len(regex_passed)} jobs from all scrapers.")
+        # Check: Company Cooldown (Alternate Weeks / 14 Days), scoped to this domain
+        if comp_name_lower in recent_companies[domain]:
+            logger.debug(f"[{domain}] Skipping {job.get('company')}: featured in email digest within last {settings.COMPANY_COOLDOWN_DAYS} days.")
+            continue
 
-    # 5. Company Diversity Filter BEFORE Claude (pick best 1 job per company)
-    # This prevents Claude from analyzing 10 Datadog jobs when only 1 will be used.
-    jobs_by_company: Dict[str, List[Dict[str, Any]]] = {}
-    for job in regex_passed:
-        comp_name = job["company"]
-        if comp_name not in jobs_by_company:
-            jobs_by_company[comp_name] = []
-        jobs_by_company[comp_name].append(job)
+        # Check: Duplicate check (history), scoped to this domain
+        if is_duplicate_job(enriched_job, seen_titles_companies[domain], seen_links[domain]):
+            continue
+
+        regex_passed_by_domain[domain].append(enriched_job)
+
+    for domain in DOMAINS:
+        logger.info(f"[{domain}] Regex filter passed: {len(regex_passed_by_domain[domain])} jobs.")
 
     # How many jobs to forward per company to Claude for validation
     # Setting to 2 gives Claude more candidates per company, helping reach 30-35 final jobs
     JOBS_PER_COMPANY_FOR_CLAUDE = 2
 
-    pre_diversity_jobs: List[Dict[str, Any]] = []
-    for comp_name, comp_jobs in jobs_by_company.items():
-        sorted_comp_jobs = sorted(comp_jobs, key=rate_job_relevance, reverse=True)
-        # Take top N jobs from this company to send to Claude
-        top_jobs = sorted_comp_jobs[:JOBS_PER_COMPANY_FOR_CLAUDE]
-        pre_diversity_jobs.extend(top_jobs)
-        if len(comp_jobs) > 1:
-            logger.info(
-                f"Pre-Claude: Picked top {len(top_jobs)} job(s) for {comp_name} "
-                f"from {len(comp_jobs)} candidates."
-            )
+    final_selection_by_domain: Dict[str, List[Dict[str, Any]]] = {}
 
-    logger.info(f"Sending {len(pre_diversity_jobs)} jobs to Claude for validation (top {JOBS_PER_COMPANY_FOR_CLAUDE} per company).")
+    for domain in DOMAINS:
+        regex_passed = regex_passed_by_domain[domain]
 
-    # 6. Claude AI Filter (1 job per company — efficient & accurate)
-    valid_jobs: List[Dict[str, Any]] = []
+        # 5. Company Diversity Filter BEFORE Claude (pick best N jobs per company)
+        # This prevents Claude from analyzing 10 Datadog jobs when only 1 will be used.
+        jobs_by_company: Dict[str, List[Dict[str, Any]]] = {}
+        for job in regex_passed:
+            comp_name = job["company"]
+            jobs_by_company.setdefault(comp_name, []).append(job)
 
-    for enriched_job in pre_diversity_jobs:
-        if settings.USE_AI_FILTER and settings.CLAUDE_API_KEY:
-            ai_match, ai_reason = verify_job_with_ai(enriched_job)
-            if not ai_match:
-                logger.info(f"Claude rejected: '{enriched_job['title']}' at {enriched_job['company']}")
-                continue
-            enriched_job["experience_metadata"] = f"{enriched_job['experience_metadata']} | {ai_reason}"
+        pre_diversity_jobs: List[Dict[str, Any]] = []
+        for comp_name, comp_jobs in jobs_by_company.items():
+            sorted_comp_jobs = sorted(comp_jobs, key=rate_job_relevance, reverse=True)
+            top_jobs = sorted_comp_jobs[:JOBS_PER_COMPANY_FOR_CLAUDE]
+            pre_diversity_jobs.extend(top_jobs)
+            if len(comp_jobs) > 1:
+                logger.info(
+                    f"[{domain}] Pre-Claude: Picked top {len(top_jobs)} job(s) for {comp_name} "
+                    f"from {len(comp_jobs)} candidates."
+                )
 
-        valid_jobs.append(enriched_job)
+        logger.info(f"[{domain}] Sending {len(pre_diversity_jobs)} jobs to Claude for validation (top {JOBS_PER_COMPANY_FOR_CLAUDE} per company).")
 
-    logger.info(f"After Claude AI filter: {len(valid_jobs)} jobs approved.")
+        # 6. Claude AI Filter (domain-aware prompt — see src/filters/ai_filter.py)
+        valid_jobs: List[Dict[str, Any]] = []
+        for enriched_job in pre_diversity_jobs:
+            if settings.USE_AI_FILTER and settings.CLAUDE_API_KEY:
+                ai_match, ai_reason = verify_job_with_ai(enriched_job)
+                if not ai_match:
+                    logger.info(f"[{domain}] Claude rejected: '{enriched_job['title']}' at {enriched_job['company']}")
+                    continue
+                enriched_job["experience_metadata"] = f"{enriched_job['experience_metadata']} | {ai_reason}"
 
-    # 7. Final Company Diversity Enforcement (1 best Claude-approved job per company)
-    final_by_company: Dict[str, Dict[str, Any]] = {}
-    for job in valid_jobs:
-        comp = job["company"]
-        if comp not in final_by_company:
-            final_by_company[comp] = job
-        else:
-            if rate_job_relevance(job) > rate_job_relevance(final_by_company[comp]):
+            valid_jobs.append(enriched_job)
+
+        logger.info(f"[{domain}] After Claude AI filter: {len(valid_jobs)} jobs approved.")
+
+        # 7. Final Company Diversity Enforcement (1 best Claude-approved job per company)
+        final_by_company: Dict[str, Dict[str, Any]] = {}
+        for job in valid_jobs:
+            comp = job["company"]
+            if comp not in final_by_company or rate_job_relevance(job) > rate_job_relevance(final_by_company[comp]):
                 final_by_company[comp] = job
 
-    diverse_final = list(final_by_company.values())
-    logger.info(f"After final diversity enforcement: {len(diverse_final)} unique companies with approved jobs.")
+        diverse_final = list(final_by_company.values())
+        logger.info(f"[{domain}] After final diversity enforcement: {len(diverse_final)} unique companies with approved jobs.")
 
-    # 8. Sort by newest first and select top 30-40 jobs
-    def get_sort_key(j: Dict[str, Any]) -> str:
-        return j.get("date_posted", "") or "0000-00-00"
+        # 8. Sort by newest first and select top 40 jobs
+        def get_sort_key(j: Dict[str, Any]) -> str:
+            return j.get("date_posted", "") or "0000-00-00"
 
-    sorted_jobs = sorted(diverse_final, key=get_sort_key, reverse=True)
+        sorted_jobs = sorted(diverse_final, key=get_sort_key, reverse=True)
+        final_selection_by_domain[domain] = sorted_jobs[:40]
+        logger.info(f"[{domain}] Selected {len(final_selection_by_domain[domain])} jobs for report generation.")
 
-    # Select top 40 jobs for the report
-    final_selection = sorted_jobs[:40]
-    logger.info(f"Selected top {len(final_selection)} jobs for report generation.")
-    
-    if not final_selection:
-        logger.warning("No new matching jobs were found today. Excel file creation skipped.")
+    if not any(final_selection_by_domain.values()):
+        logger.warning("No new matching jobs were found today in any domain. Excel file creation skipped.")
         return True
-        
-    # 9. Generate Excel Report
+
+    # 9. Generate an Excel Report per domain (domains with no jobs are skipped)
+    excel_paths_by_domain: Dict[str, str] = {}
+    for domain in DOMAINS:
+        jobs = final_selection_by_domain[domain]
+        if not jobs:
+            logger.info(f"[{domain}] No matching jobs today — skipping Excel generation for this domain.")
+            continue
+        try:
+            excel_paths_by_domain[domain] = generate_styled_excel(jobs, domain=domain)
+        except Exception as e:
+            logger.error(f"[{domain}] Error creating Excel report: {str(e)}", exc_info=True)
+
+    if not excel_paths_by_domain:
+        logger.warning("No Excel reports were generated today.")
+        return True
+
+    # 10. Send one Email Alert with all domain reports attached
     try:
-        excel_path = generate_styled_excel(final_selection)
-    except Exception as e:
-        logger.error(f"Error creating Excel report: {str(e)}", exc_info=True)
-        return False
-        
-    # 10. Send Email Alert
-    try:
-        send_email_with_report(excel_path, final_selection)
+        send_email_with_report(excel_paths_by_domain, final_selection_by_domain)
     except Exception as e:
         logger.error(f"Error during email dispatch: {str(e)}", exc_info=True)
-        # Even if email fails, Excel is saved in history so pipeline succeeded
-        
+        # Even if email fails, Excel files are saved in history so pipeline succeeded
+
     logger.info("Pipeline executed successfully.")
     return True
 

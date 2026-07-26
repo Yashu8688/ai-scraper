@@ -9,18 +9,28 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-def generate_styled_excel(jobs: List[Dict[str, Any]]) -> str:
+# Domain -> (file prefix, sheet name, report title, emoji)
+DOMAIN_REPORT_META = {
+    "cyber": {"prefix": "CyberJobs", "sheet": "Cyber Jobs", "title": "CYBER SECURITY JOB LEADS (1-6 YRS EXP)", "emoji": "🇺🇸"},
+    "data": {"prefix": "DataJobs", "sheet": "Data Jobs", "title": "DATA ENGINEERING / ANALYTICS JOB LEADS (1-6 YRS EXP)", "emoji": "📊"},
+    "java": {"prefix": "JavaJobs", "sheet": "Java Jobs", "title": "JAVA DEVELOPER JOB LEADS (1-6 YRS EXP)", "emoji": "☕"},
+    "dotnet": {"prefix": "DotNetJobs", "sheet": ".NET Jobs", "title": ".NET DEVELOPER JOB LEADS (1-6 YRS EXP)", "emoji": "🔷"},
+}
+
+def generate_styled_excel(jobs: List[Dict[str, Any]], domain: str = "cyber") -> str:
     """
     Generates a beautifully styled Excel file using pandas and openpyxl.
-    Saves to history directory with naming CyberJobs_DDMMYYYY.xlsx.
+    Saves to history directory with naming <Prefix>_DDMMYYYY.xlsx (prefix depends on domain).
     If file is already open/locked, appends a counter suffix.
 
     Returns:
         str: Absolute path of the generated Excel file.
     """
-    # Create filename with current date: CyberJobs_DDMMYYYY.xlsx
+    meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
+
+    # Create filename with current date: <Prefix>_DDMMYYYY.xlsx
     today_str = datetime.date.today().strftime("%d%m%Y")
-    base_filename = f"CyberJobs_{today_str}"
+    base_filename = f"{meta['prefix']}_{today_str}"
     file_path = settings.HISTORY_DIR / f"{base_filename}.xlsx"
 
     # Handle locked file — append _v2, _v3 etc. if file is open in Excel
@@ -56,10 +66,10 @@ def generate_styled_excel(jobs: List[Dict[str, Any]]) -> str:
     
     # 2. Write to Excel using openpyxl engine
     writer = pd.ExcelWriter(file_path, engine="openpyxl")
-    df.to_excel(writer, index=False, startrow=3, sheet_name="Cyber Jobs")
-    
+    df.to_excel(writer, index=False, startrow=3, sheet_name=meta["sheet"])
+
     workbook = writer.book
-    worksheet = writer.sheets["Cyber Jobs"]
+    worksheet = writer.sheets[meta["sheet"]]
     
     # Ensure grid lines are visible
     worksheet.views.sheetView[0].showGridLines = True
@@ -95,7 +105,7 @@ def generate_styled_excel(jobs: List[Dict[str, Any]]) -> str:
     center_align = Alignment(horizontal="center", vertical="center")
     
     # 3. Add Report Title Block
-    worksheet["A1"] = "🇺🇸 CYBER SECURITY JOB LEADS (1-6 YRS EXP)"
+    worksheet["A1"] = f"{meta['emoji']} {meta['title']}"
     worksheet["A1"].font = title_font
     
     generated_time = datetime.datetime.now().strftime("%B %d, %Y - %I:%M %p")

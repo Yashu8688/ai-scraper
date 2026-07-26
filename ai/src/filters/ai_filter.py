@@ -4,16 +4,53 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+# Domain-specific recruiter persona + role criteria, injected into the shared prompt template
+DOMAIN_CRITERIA = {
+    "cyber": {
+        "persona": "expert cybersecurity recruiter",
+        "role_label": "CYBER SECURITY ROLE",
+        "role_rules": (
+            "   - ACCEPT: AppSec, Cloud Security, SOC, Penetration Testing, IAM, GRC, Compliance, Incident Response, "
+            "Threat Intelligence, SecOps, Security Engineering, SIEM, Vulnerability Management, Cryptography, DevSecOps.\n"
+            "   - REJECT: Physical Security Guard, Food Safety, IT Helpdesk (non-security), Generic Software Engineer, Sales, Marketing, HR."
+        ),
+    },
+    "data": {
+        "persona": "expert data/analytics recruiter",
+        "role_label": "DATA ROLE",
+        "role_rules": (
+            "   - ACCEPT: Data Engineer, Data Analyst, BI Developer/Analyst, Power BI Developer, Analytics Engineer, "
+            "ETL/ELT Developer, Data Warehouse Engineer, roles centered on Tableau, Looker, Snowflake, Databricks, dbt, Spark, Airflow.\n"
+            "   - REJECT: Data Entry Clerk, generic Software Engineer with no data focus, Sales/Marketing Analyst without technical data work, ML Research Scientist (unless clearly data engineering/analytics)."
+        ),
+    },
+    "java": {
+        "persona": "expert Java recruiter",
+        "role_label": "JAVA DEVELOPER ROLE",
+        "role_rules": (
+            "   - ACCEPT: Java Developer/Engineer, Backend Engineer using Java/Spring Boot/J2EE/Jakarta EE, Java Microservices Engineer.\n"
+            "   - REJECT: Roles where Java is only listed as one of many unrelated skills, JavaScript/frontend-only roles, non-engineering roles."
+        ),
+    },
+    "dotnet": {
+        "persona": "expert .NET recruiter",
+        "role_label": ".NET DEVELOPER ROLE",
+        "role_rules": (
+            "   - ACCEPT: .NET Developer/Engineer, C# Developer, ASP.NET / .NET Core Engineer, Blazor Developer.\n"
+            "   - REJECT: Roles where .NET/C# is only a minor listed skill, non-engineering roles, unrelated software engineer roles without .NET focus."
+        ),
+    },
+}
+
 # Shared Claude prompt template for all job evaluations
-CLAUDE_PROMPT_TEMPLATE = """You are an expert cybersecurity recruiter with 10+ years of hiring experience at US tech companies.
+CLAUDE_PROMPT_TEMPLATE = """You are an {persona} with 10+ years of hiring experience at US tech companies.
 
 Evaluate the following job listing against ALL three criteria:
 
 CRITERIA:
 1. USA LOCATION: Is this job located in the United States? Remote-US is OK. International-only roles (UK, India, Europe, Canada, etc.) must be rejected.
-2. CYBER SECURITY ROLE: Is this a legitimate cybersecurity/information security role?
-   - ACCEPT: AppSec, Cloud Security, SOC, Penetration Testing, IAM, GRC, Compliance, Incident Response, Threat Intelligence, SecOps, Security Engineering, SIEM, Vulnerability Management, Cryptography, DevSecOps.
-   - REJECT: Physical Security Guard, Food Safety, IT Helpdesk (non-security), Generic Software Engineer, Sales, Marketing, HR.
+2. {role_label}: Is this a legitimate role in this domain?
+{role_rules}
 3. EXPERIENCE LEVEL (1-6 YEARS): Does the role target 1–6 years of experience?
    - ACCEPT: Junior, Mid-level, or roles requiring 1-6 years.
    - REJECT: Internships (0 years), or roles clearly requiring 7+ years (VP, Distinguished Engineer, Staff Principal with 10+ years).
@@ -61,7 +98,13 @@ def verify_job_with_ai(job: Dict[str, Any]) -> Tuple[bool, str]:
         description_clean = re.sub(r"<[^>]+>", " ", description_raw)
         description_clean = re.sub(r"\s+", " ", description_clean).strip()
 
+        domain = job.get("domain", "cyber")
+        criteria = DOMAIN_CRITERIA.get(domain, DOMAIN_CRITERIA["cyber"])
+
         prompt = CLAUDE_PROMPT_TEMPLATE.format(
+            persona=criteria["persona"],
+            role_label=criteria["role_label"],
+            role_rules=criteria["role_rules"],
             company=job.get("company", "Unknown"),
             title=job.get("title", "Unknown"),
             location=job.get("location", "Unknown"),

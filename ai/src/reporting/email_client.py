@@ -11,13 +11,20 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-def build_html_body(jobs: List[Dict[str, Any]]) -> str:
-    """Creates a beautiful, styled HTML body for the email report."""
-    today_str = datetime.date.today().strftime("%B %d, %Y")
-    
-    # Generate job list table rows
+# Domain -> (section heading, emoji), used to build the combined email body
+DOMAIN_EMAIL_META = {
+    "cyber": {"heading": "Cyber Security", "emoji": "🇺🇸"},
+    "data": {"heading": "Data Engineering / Analytics", "emoji": "📊"},
+    "java": {"heading": "Java Developer", "emoji": "☕"},
+    "dotnet": {"heading": ".NET Developer", "emoji": "🔷"},
+}
+
+def build_domain_section_html(domain: str, jobs: List[Dict[str, Any]]) -> str:
+    """Builds the HTML block (heading + summary + preview table) for a single domain."""
+    meta = DOMAIN_EMAIL_META.get(domain, {"heading": domain.title(), "emoji": "📌"})
+
     table_rows = ""
-    for idx, job in enumerate(jobs[:10], 1): # Show top 10 previews in the email body
+    for idx, job in enumerate(jobs[:10], 1):  # Show top 10 previews per domain
         zebra_class = 'class="zebra"' if idx % 2 == 0 else ""
         table_rows += f"""
         <tr {zebra_class}>
@@ -29,12 +36,43 @@ def build_html_body(jobs: List[Dict[str, Any]]) -> str:
             <td><a href="{job.get('apply_link')}" class="btn">Apply</a></td>
         </tr>
         """
-        
+
     more_jobs_count = max(0, len(jobs) - 10)
     footer_preview_note = ""
     if more_jobs_count > 0:
         footer_preview_note = f"<p class='note'>...and {more_jobs_count} more job leads in the attached Excel file!</p>"
-        
+
+    return f"""
+    <h2 class="domain-heading">{meta['emoji']} {meta['heading']} — {len(jobs)} Leads</h2>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 5%; text-align: center;">#</th>
+                <th style="width: 25%;">Company</th>
+                <th style="width: 35%;">Job Title</th>
+                <th style="width: 15%;">Location</th>
+                <th style="width: 10%;">Exp</th>
+                <th style="width: 10%;">Link</th>
+            </tr>
+        </thead>
+        <tbody>
+            {table_rows}
+        </tbody>
+    </table>
+    {footer_preview_note}
+    """
+
+def build_html_body(jobs_by_domain: Dict[str, List[Dict[str, Any]]]) -> str:
+    """Creates a beautiful, styled HTML body covering all domains' job reports."""
+    today_str = datetime.date.today().strftime("%B %d, %Y")
+
+    total_jobs = sum(len(jobs) for jobs in jobs_by_domain.values())
+
+    domain_sections = ""
+    for domain, jobs in jobs_by_domain.items():
+        if jobs:
+            domain_sections += build_domain_section_html(domain, jobs)
+
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -139,40 +177,33 @@ def build_html_body(jobs: List[Dict[str, Any]]) -> str:
                 color: #888888;
                 border-top: 1px solid #e1e8ed;
             }}
+            .domain-heading {{
+                margin: 30px 0 5px 0;
+                font-size: 17px;
+                color: #1F4E79;
+                border-bottom: 2px solid #DDEBF7;
+                padding-bottom: 6px;
+            }}
+            .domain-heading:first-of-type {{
+                margin-top: 0;
+            }}
         </style>
     </head>
     <body>
         <div class="container">
             <div class="header">
-                <h1>🇺🇸 Cyber Security Job Aggregator</h1>
+                <h1>💼 Multi-Domain Job Aggregator</h1>
                 <p>Daily Digest — {today_str}</p>
             </div>
             <div class="content">
                 <div class="summary-box">
-                    <p><strong>🎯 Today's Summary:</strong> We identified <strong>{len(jobs)}</strong> fresh, unique Cyber Security roles in the US matching 1-6 years of experience. A beautiful, formatted Excel sheet is attached to this email.</p>
+                    <p><strong>🎯 Today's Summary:</strong> We identified <strong>{total_jobs}</strong> fresh, unique job leads across Cyber Security, Data, Java, and .NET matching 1-6 years of experience. A separate, formatted Excel sheet per domain is attached to this email.</p>
                 </div>
-                
-                <h3>🔥 Top Job Leads Preview:</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width: 5%; text-align: center;">#</th>
-                            <th style="width: 25%;">Company</th>
-                            <th style="width: 35%;">Job Title</th>
-                            <th style="width: 15%;">Location</th>
-                            <th style="width: 10%;">Exp</th>
-                            <th style="width: 10%;">Link</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {table_rows}
-                    </tbody>
-                </table>
-                
-                {footer_preview_note}
+
+                {domain_sections}
             </div>
             <div class="footer">
-                <p>Sent by Cyber Security Job Aggregator automated pipeline.</p>
+                <p>Sent by the Multi-Domain Job Aggregator automated pipeline.</p>
                 <p>Configure targets, notifications, and AI filters in your settings.</p>
             </div>
         </div>
@@ -181,9 +212,9 @@ def build_html_body(jobs: List[Dict[str, Any]]) -> str:
     """
     return html
 
-def send_email_with_report(excel_path: str, jobs: List[Dict[str, Any]]) -> bool:
+def send_email_with_report(excel_paths_by_domain: Dict[str, str], jobs_by_domain: Dict[str, List[Dict[str, Any]]]) -> bool:
     """
-    Sends the generated Excel report to the configured recipient email address.
+    Sends one email with all domain Excel reports attached to the configured recipient address.
     """
     # 1. Validation check
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD or not settings.EMAIL_TO:
@@ -192,16 +223,24 @@ def send_email_with_report(excel_path: str, jobs: List[Dict[str, Any]]) -> bool:
             "Email dispatch skipped. (Generate Excel report local only)"
         )
         return False
-        
-    excel_file = Path(excel_path)
-    if not excel_file.exists():
-        logger.error(f"Cannot find Excel report attachment at: {excel_path}")
+
+    excel_files = {}
+    for domain, excel_path in excel_paths_by_domain.items():
+        excel_file = Path(excel_path)
+        if not excel_file.exists():
+            logger.error(f"[{domain}] Cannot find Excel report attachment at: {excel_path}")
+            continue
+        excel_files[domain] = excel_file
+
+    if not excel_files:
+        logger.error("No Excel report attachments found. Email dispatch skipped.")
         return False
-        
+
     try:
         today_str = datetime.date.today().strftime("%d/%m/%Y")
-        subject = f"🇺🇸 Cyber Security Jobs Digest ({today_str}) - {len(jobs)} Leads"
-        
+        total_jobs = sum(len(jobs) for jobs in jobs_by_domain.values())
+        subject = f"💼 Multi-Domain Jobs Digest ({today_str}) - {total_jobs} Leads"
+
         recipients = [e.strip() for e in settings.EMAIL_TO.split(",") if e.strip()]
 
         msg = MIMEMultipart()
@@ -209,19 +248,20 @@ def send_email_with_report(excel_path: str, jobs: List[Dict[str, Any]]) -> bool:
         msg["To"] = ", ".join(recipients)
         msg["Subject"] = subject
 
-        html_body = build_html_body(jobs)
+        html_body = build_html_body(jobs_by_domain)
         msg.attach(MIMEText(html_body, "html"))
 
-        logger.info(f"Attaching Excel file to email: {excel_file.name}")
-        with open(excel_file, "rb") as attachment:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(attachment.read())
-            encoders.encode_base64(part)
-            part.add_header(
-                "Content-Disposition",
-                f"attachment; filename= {excel_file.name}",
-            )
-            msg.attach(part)
+        for domain, excel_file in excel_files.items():
+            logger.info(f"[{domain}] Attaching Excel file to email: {excel_file.name}")
+            with open(excel_file, "rb") as attachment:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(attachment.read())
+                encoders.encode_base64(part)
+                part.add_header(
+                    "Content-Disposition",
+                    f"attachment; filename= {excel_file.name}",
+                )
+                msg.attach(part)
 
         logger.info(f"Connecting to SMTP server {settings.SMTP_HOST}:{settings.SMTP_PORT} via TLS...")
         server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)

@@ -7,11 +7,44 @@ logger = logging.getLogger(__name__)
 
 # Keywords that indicate a Cyber Security role
 SECURITY_KEYWORDS = [
-    r"\bsecurity\b", r"\bcyber\b", r"\bcybersecurity\b", r"\binfosec\b", 
-    r"\bsecops\b", r"\bsoc\b", r"\bpentest\b", r"\bpenetration\b", 
-    r"\bvulnerability\b", r"\biam\b", r"\bgrc\b", r"\bcompliance\b", 
+    r"\bsecurity\b", r"\bcyber\b", r"\bcybersecurity\b", r"\binfosec\b",
+    r"\bsecops\b", r"\bsoc\b", r"\bpentest\b", r"\bpenetration\b",
+    r"\bvulnerability\b", r"\biam\b", r"\bgrc\b", r"\bcompliance\b",
     r"\bthreat\b", r"\bincident\b", r"\bsiem\b", r"\bcryptography\b"
 ]
+
+# Keywords that indicate a Data Engineering / Data Analyst / BI role
+DATA_KEYWORDS = [
+    r"\bdata\s+engineer(ing)?\b", r"\bdata\s+analy(st|tics)\b", r"\bbusiness\s+intelligence\b",
+    r"\bbi\s+developer\b", r"\bbi\s+analyst\b", r"\bpower\s*bi\b", r"\betl\b", r"\belt\b",
+    r"\bdata\s+warehouse\b", r"\bdata\s+pipeline\b", r"\bdata\s+platform\b",
+    r"\banalytics\s+engineer\b", r"\bdatabricks\b", r"\bsnowflake\b", r"\btableau\b",
+    r"\blooker\b", r"\bdbt\b", r"\bspark\b", r"\bairflow\b", r"\bbig\s*data\b",
+]
+
+# Keywords that indicate a Java Developer role
+JAVA_KEYWORDS = [
+    r"\bjava\s+developer\b", r"\bjava\s+engineer\b", r"\bsoftware\s+engineer.{0,20}\bjava\b",
+    r"\bjava\b.{0,20}\bsoftware\s+engineer\b", r"\bspring\s*boot\b", r"\bspring\s+framework\b",
+    r"\bj2ee\b", r"\bjakarta\s+ee\b", r"\bmicroservices\b.{0,20}\bjava\b", r"\bjava\b.{0,20}\bmicroservices\b",
+    r"\bcore\s+java\b", r"\bjava\/j2ee\b",
+]
+
+# Keywords that indicate a .NET Developer role
+DOTNET_KEYWORDS = [
+    r"\.net\s+developer\b", r"\.net\s+engineer\b", r"\bdotnet\s+developer\b",
+    r"\bc#\s+developer\b", r"\basp\.net\b", r"\.net\s+core\b", r"\bblazor\b",
+    r"\bc#\b.{0,20}\bsoftware\s+engineer\b", r"\bsoftware\s+engineer.{0,20}\bc#\b",
+    r"\bwpf\b", r"\bentity\s+framework\b",
+]
+
+# Domain registry: name -> (keywords, extra_exclude_patterns)
+DOMAIN_KEYWORDS = {
+    "cyber": SECURITY_KEYWORDS,
+    "data": DATA_KEYWORDS,
+    "java": JAVA_KEYWORDS,
+    "dotnet": DOTNET_KEYWORDS,
+}
 
 # Title patterns to exclude (false positives and non-cyber roles)
 EXCLUDE_TITLE_PATTERNS = [
@@ -113,18 +146,37 @@ def is_usa_location(location: str, description: str = "") -> bool:
 def is_cyber_security_role(title: str) -> bool:
     """Checks if the job title matches cyber security roles and avoids exclusions."""
     title_lower = title.lower()
-    
+
     # Check for title exclusion patterns first
     for pattern in EXCLUDE_TITLE_PATTERNS:
         if re.search(pattern, title_lower):
             return False
-            
+
     # Check for security keywords in title
     for keyword in SECURITY_KEYWORDS:
         if re.search(keyword, title_lower):
             return True
-            
+
     return False
+
+def classify_domain(title: str) -> str:
+    """
+    Classifies a job title into one of the target domains: 'cyber', 'data', 'java', 'dotnet'.
+    Returns None if the title doesn't match any tracked domain.
+    Seniority/non-role exclusions (EXCLUDE_TITLE_PATTERNS) still apply to every domain.
+    """
+    title_lower = title.lower()
+
+    for pattern in EXCLUDE_TITLE_PATTERNS:
+        if re.search(pattern, title_lower):
+            return None
+
+    for domain, keywords in DOMAIN_KEYWORDS.items():
+        for keyword in keywords:
+            if re.search(keyword, title_lower):
+                return domain
+
+    return None
 
 def parse_experience(description: str, title: str = "") -> Tuple[bool, str]:
     """
@@ -207,22 +259,24 @@ def filter_job(job: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
     title = job.get("title", "")
     location = job.get("location", "")
     description = job.get("description", "")
-    
+
     # 1. Location check
     if not is_usa_location(location, description):
         return False, "Not in USA", job
-        
-    # 2. Security role check
-    if not is_cyber_security_role(title):
-        return False, "Not a Cyber Security role", job
-        
+
+    # 2. Domain classification (cyber / data / java / dotnet)
+    domain = classify_domain(title)
+    if not domain:
+        return False, "Does not match any tracked domain", job
+
     # 3. Experience check
     is_exp_match, exp_reason = parse_experience(description, title)
     if not is_exp_match:
         return False, f"Experience out of range: {exp_reason}", job
-        
+
     # Enrich job dictionary with parsed metadata
     enriched_job = job.copy()
     enriched_job["experience_metadata"] = exp_reason
-    
+    enriched_job["domain"] = domain
+
     return True, "Matches criteria", enriched_job
