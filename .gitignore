@@ -8,6 +8,8 @@ bulk_discover.py
 personal_pipeline.log
 node_modules/
 frontend/dist/
-ai/cyberjobs.db 
-ai/data/history/ 
-cyberjobs.db 
+ai/cyberjobs.db
+cyberjobs.db
+# NOTE: ai/data/history/ is deliberately NOT ignored. The daily reports committed there
+# are the dedup/cooldown history the next run reads, and the retention purge deletes
+# them once they age out.
