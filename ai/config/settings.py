@@ -143,6 +143,18 @@ class SettingsModule:
         return os.getenv("CLAUDE_API_KEY", "")
 
     @property
+    def RESEND_API_KEY(self) -> str:
+        """
+        Used only by the on-demand Domain Jobs send (email_client.send_domain_report_email).
+        Render blocks outbound SMTP, so that path sends via Resend's HTTPS API instead. The
+        daily digest (send_email_with_report) is unaffected and keeps using SMTP as before.
+        """
+        val = self._get_db_value("resend_api_key")
+        if val is not None:
+            return val
+        return os.getenv("RESEND_API_KEY", "")
+
+    @property
     def USE_AI_FILTER(self) -> bool:
         val = self._get_db_value("use_ai_filter")
         if val is not None:

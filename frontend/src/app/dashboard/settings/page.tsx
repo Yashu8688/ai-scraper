@@ -25,9 +25,11 @@ export default function SettingsPage() {
   const [emailTo, setEmailTo] = useState("");
   const [emailFrom, setEmailFrom] = useState("");
   const [claudeApiKey, setClaudeApiKey] = useState("");
+  const [resendApiKey, setResendApiKey] = useState("");
 
   const [showPassword, setShowPassword] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showResendKey, setShowResendKey] = useState(false);
   
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -54,6 +56,7 @@ export default function SettingsPage() {
       setEmailTo(settingsData.email_to || "");
       setEmailFrom(settingsData.email_from || "");
       setClaudeApiKey(settingsData.claude_api_key || "");
+      setResendApiKey(settingsData.resend_api_key || "");
     }
   }, [settingsData]);
 
@@ -95,7 +98,8 @@ export default function SettingsPage() {
       smtp_password: smtpPassword,
       email_to: emailTo,
       email_from: emailFrom,
-      claude_api_key: claudeApiKey
+      claude_api_key: claudeApiKey,
+      resend_api_key: resendApiKey
     };
 
     updateMutation.mutate(payload);
@@ -282,6 +286,27 @@ export default function SettingsPage() {
                 className="absolute inset-y-0 right-0 flex items-center pr-3 text-[#5B5F4A] hover:text-[#1E293B]"
               >
                 {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Resend API Key</label>
+            <p className="text-[9px] text-[#5B5F4A] leading-normal font-medium">Used to send the on-demand Domain Jobs report (Render blocks direct SMTP, so this goes over Resend's API instead)</p>
+            <div className="relative">
+              <input
+                type={showResendKey ? "text" : "password"}
+                placeholder="re_..."
+                value={resendApiKey}
+                onChange={(e) => setResendApiKey(e.target.value)}
+                className="w-full rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 pr-10 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
+              />
+              <button
+                type="button"
+                onClick={() => setShowResendKey(!showResendKey)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-[#5B5F4A] hover:text-[#1E293B]"
+              >
+                {showResendKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
             </div>
           </div>

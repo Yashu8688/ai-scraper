@@ -125,6 +125,7 @@ class SettingsUpdate(BaseModel):
     email_from: str
     gemini_api_key: Optional[str] = ""
     claude_api_key: Optional[str] = ""
+    resend_api_key: Optional[str] = ""
 
 class DomainReportSendRequest(BaseModel):
     domain: str  # "cyber", "data", "java", or "dotnet"
@@ -658,7 +659,8 @@ def get_sys_settings(current_user: User = Depends(get_current_user)):
         "smtp_password": settings.SMTP_PASSWORD,
         "email_to": settings.EMAIL_TO,
         "email_from": settings.EMAIL_FROM,
-        "claude_api_key": settings.CLAUDE_API_KEY
+        "claude_api_key": settings.CLAUDE_API_KEY,
+        "resend_api_key": settings.RESEND_API_KEY
     }
 
 @router.post("/settings")
@@ -679,6 +681,8 @@ def update_sys_settings(req: SettingsUpdate, db: Session = Depends(get_db), curr
     }
     if req.claude_api_key:
         db_keys["claude_api_key"] = req.claude_api_key
+    if req.resend_api_key:
+        db_keys["resend_api_key"] = req.resend_api_key
 
     try:
         for k, v in db_keys.items():

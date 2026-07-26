@@ -1,7 +1,9 @@
+import base64
 import logging
 import socket
 import smtplib
 import datetime
+import requests
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -10,6 +12,13 @@ from pathlib import Path
 from typing import List, Dict, Any
 from config import settings
 from src.reporting.excel import DOMAIN_REPORT_META
+
+# Render blocks outbound SMTP (confirmed: connections to smtp.gmail.com hang and time out
+# with "Network is unreachable" / "Connection timed out" even with correct credentials and
+# IPv4 forced). Resend's HTTPS API is the workaround for the on-demand send only — the daily
+# digest keeps using SMTP as before since it runs from GitHub Actions, which isn't blocked.
+RESEND_API_URL = "https://api.resend.com/emails"
+RESEND_DEFAULT_FROM = "onboarding@resend.dev"
 
 logger = logging.getLogger(__name__)
 
@@ -305,78 +314,119 @@ def send_email_with_report(excel_paths_by_domain: Dict[str, str], jobs_by_domain
         logger.error(f"Failed to send email: {str(e)}", exc_info=True)
         return False
 
-def send_domain_report_email(domain: str, file_bytes: bytes, recipients: List[str] = None) -> bool:
+def _build_domain_report_html(meta: Dict[str, str]) -> str:
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"></head>
+    <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333333; background-color: #f4f7f9; margin: 0; padding: 0;">
+        <div style="max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e1e8ed;">
+            <div style="background: linear-gradient(135deg, #1F4E79 0%, #2F4F4F 100%); color: #ffffff; padding: 24px 20px; text-align: center;">
+                <h1 style="margin: 0; font-size: 20px; font-weight: 600;">{meta['emoji']} {meta['sheet']}</h1>
+                <p style="margin: 5px 0 0 0; font-size: 13px; opacity: 0.9;">Sent on demand from the dashboard</p>
+            </div>
+            <div style="padding: 24px 20px;">
+                <p style="margin: 0; font-size: 14px;">Attached is the most recently generated <strong>{meta['sheet']}</strong> report.</p>
+            </div>
+            <div style="background-color: #f4f7f9; padding: 16px 20px; text-align: center; font-size: 11px; color: #888888; border-top: 1px solid #e1e8ed;">
+                <p style="margin: 0;">Sent by the Multi-Domain Job Aggregator dashboard.</p>
+            </div>
+        </div>
+    </body>
+    </html>
     """
-    Sends a single, already-stored domain report on demand (triggered from the dashboard's
-    "Domain Jobs" page). Identified only by role name — the report's original date is
-    deliberately not mentioned in the email.
 
-    Args:
-        recipients: explicit list of addresses to send to (the clients picked on the
-            dashboard). When omitted, falls back to the daily digest's EMAIL_TO list.
-    """
+def _send_domain_report_via_resend(
+    domain: str, meta: Dict[str, str], recipients: List[str], html_body: str,
+    file_bytes: bytes, attachment_filename: str,
+) -> bool:
+    payload = {
+        "from": RESEND_DEFAULT_FROM,
+        "to": recipients,
+        "subject": f"{meta['emoji']} {meta['sheet']} — Latest Report",
+        "html": html_body,
+        "attachments": [
+            {"filename": attachment_filename, "content": base64.b64encode(file_bytes).decode("ascii")}
+        ],
+    }
+    response = requests.post(
+        RESEND_API_URL,
+        headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        logger.error(f"[{domain}] Resend API error {response.status_code}: {response.text[:500]}")
+        return False
+
+    logger.info(f"[{domain}] On-demand report emailed via Resend to {', '.join(recipients)} (id={response.json().get('id')})")
+    return True
+
+def _send_domain_report_via_smtp(
+    domain: str, meta: Dict[str, str], recipients: List[str], html_body: str,
+    file_bytes: bytes, attachment_filename: str,
+) -> bool:
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         logger.warning(
             "SMTP credentials are missing in .env settings. On-demand domain report email skipped."
         )
         return False
 
+    msg = MIMEMultipart()
+    msg["From"] = settings.EMAIL_FROM
+    msg["To"] = ", ".join(recipients)
+    msg["Subject"] = f"{meta['emoji']} {meta['sheet']} — Latest Report"
+    msg.attach(MIMEText(html_body, "html"))
+
+    part = MIMEBase("application", "octet-stream")
+    part.set_payload(file_bytes)
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", f"attachment; filename= {attachment_filename}")
+    msg.attach(part)
+
+    logger.info(f"[{domain}] Connecting to SMTP server {settings.SMTP_HOST}:{settings.SMTP_PORT} via TLS (IPv4-only)...")
+    server = IPv4OnlySMTP(settings.SMTP_HOST, settings.SMTP_PORT)
+    server.starttls()
+    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+
+    server.sendmail(settings.EMAIL_FROM, recipients, msg.as_string())
+    server.quit()
+
+    logger.info(f"[{domain}] On-demand report emailed via SMTP to {', '.join(recipients)}")
+    return True
+
+def send_domain_report_email(domain: str, file_bytes: bytes, recipients: List[str] = None) -> bool:
+    """
+    Sends a single, already-stored domain report on demand (triggered from the dashboard's
+    "Domain Jobs" page). Identified only by role name — the report's original date is
+    deliberately not mentioned in the email.
+
+    Prefers Resend's HTTPS API when RESEND_API_KEY is configured (Render blocks outbound
+    SMTP, which is what this path used before). Falls back to SMTP otherwise, which will
+    only actually work in environments that allow outbound SMTP.
+
+    Args:
+        recipients: explicit list of addresses to send to (the clients picked on the
+            dashboard). When omitted, falls back to the daily digest's EMAIL_TO list.
+    """
     meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
 
+    if recipients:
+        recipients = [e.strip() for e in recipients if e and e.strip()]
+    else:
+        recipients = [e.strip() for e in (settings.EMAIL_TO or "").split(",") if e.strip()]
+
+    if not recipients:
+        logger.warning(f"[{domain}] No recipients given and EMAIL_TO is empty. Email skipped.")
+        return False
+
+    html_body = _build_domain_report_html(meta)
+    attachment_filename = f"{meta['prefix']}.xlsx"
+
     try:
-        if recipients:
-            recipients = [e.strip() for e in recipients if e and e.strip()]
-        else:
-            recipients = [e.strip() for e in (settings.EMAIL_TO or "").split(",") if e.strip()]
-
-        if not recipients:
-            logger.warning(f"[{domain}] No recipients given and EMAIL_TO is empty. Email skipped.")
-            return False
-
-        msg = MIMEMultipart()
-        msg["From"] = settings.EMAIL_FROM
-        msg["To"] = ", ".join(recipients)
-        msg["Subject"] = f"{meta['emoji']} {meta['sheet']} — Latest Report"
-
-        html_body = f"""
-        <!DOCTYPE html>
-        <html>
-        <head><meta charset="utf-8"></head>
-        <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333333; background-color: #f4f7f9; margin: 0; padding: 0;">
-            <div style="max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e1e8ed;">
-                <div style="background: linear-gradient(135deg, #1F4E79 0%, #2F4F4F 100%); color: #ffffff; padding: 24px 20px; text-align: center;">
-                    <h1 style="margin: 0; font-size: 20px; font-weight: 600;">{meta['emoji']} {meta['sheet']}</h1>
-                    <p style="margin: 5px 0 0 0; font-size: 13px; opacity: 0.9;">Sent on demand from the dashboard</p>
-                </div>
-                <div style="padding: 24px 20px;">
-                    <p style="margin: 0; font-size: 14px;">Attached is the most recently generated <strong>{meta['sheet']}</strong> report.</p>
-                </div>
-                <div style="background-color: #f4f7f9; padding: 16px 20px; text-align: center; font-size: 11px; color: #888888; border-top: 1px solid #e1e8ed;">
-                    <p style="margin: 0;">Sent by the Multi-Domain Job Aggregator dashboard.</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        msg.attach(MIMEText(html_body, "html"))
-
-        attachment_filename = f"{meta['prefix']}.xlsx"
-        part = MIMEBase("application", "octet-stream")
-        part.set_payload(file_bytes)
-        encoders.encode_base64(part)
-        part.add_header("Content-Disposition", f"attachment; filename= {attachment_filename}")
-        msg.attach(part)
-
-        logger.info(f"[{domain}] Connecting to SMTP server {settings.SMTP_HOST}:{settings.SMTP_PORT} via TLS (IPv4-only)...")
-        server = IPv4OnlySMTP(settings.SMTP_HOST, settings.SMTP_PORT)
-        server.starttls()
-        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-
-        server.sendmail(settings.EMAIL_FROM, recipients, msg.as_string())
-        server.quit()
-
-        logger.info(f"[{domain}] On-demand report emailed to {', '.join(recipients)}")
-        return True
+        if settings.RESEND_API_KEY:
+            return _send_domain_report_via_resend(domain, meta, recipients, html_body, file_bytes, attachment_filename)
+        return _send_domain_report_via_smtp(domain, meta, recipients, html_body, file_bytes, attachment_filename)
     except Exception as e:
         logger.error(f"[{domain}] Failed to send on-demand report email: {str(e)}", exc_info=True)
         return False
