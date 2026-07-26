@@ -120,8 +120,11 @@ def run_pipeline() -> bool:
     # 2b. Load Excel History for Deduplication & Company Cooldown.
     # All three are dicts keyed by domain (cyber/data/java/dotnet) — see src/storage/history.py
     seen_titles_companies, seen_links, recent_companies = load_history_signatures(cooldown_days, retention_days)
+    # NOTE: Company cooldown is disabled below (see the "Soft filter" comment in the loop
+    # further down) — recent_companies is still computed here so re-enabling it later is just
+    # uncommenting, but it is not used to skip anything right now.
     for domain in DOMAINS:
-        logger.info(f"[{domain}] Alternate Week Filter: {len(recent_companies[domain])} companies featured within the last {settings.COMPANY_COOLDOWN_DAYS} days will be skipped.")
+        logger.info(f"[{domain}] Alternate Week Filter: {len(recent_companies[domain])} companies featured within the last {settings.COMPANY_COOLDOWN_DAYS} days (cooldown enforcement currently disabled).")
 
     # 3. Scrape Jobs from all configured companies.
     #
@@ -179,7 +182,12 @@ def run_pipeline() -> bool:
     cooldown_reserve_by_domain: Dict[str, List[Dict[str, Any]]] = {d: [] for d in DOMAINS}
 
     for job in raw_jobs:
-        comp_name_lower = job.get("company", "").strip().lower()
+        # --- Company cooldown disabled per request: a company can now show up again the very
+        # next day if it has a new/different role — only the exact same link (or the same
+        # title+company pair) is still permanently blocked, via is_duplicate_job below, which
+        # is untouched. comp_name_lower was only used by the cooldown check, so it's commented
+        # out with it. To restore cooldown, uncomment this line and the "Soft filter" block.
+        # comp_name_lower = job.get("company", "").strip().lower()
 
         # Core Criteria Filter (USA + Domain classification + 1-6 Years Exp)
         is_match, reason, enriched_job = filter_job(job)
@@ -193,9 +201,10 @@ def run_pipeline() -> bool:
             continue
 
         # Soft filter: company featured within the cooldown window goes to the reserve pool.
-        if comp_name_lower in recent_companies[domain]:
-            cooldown_reserve_by_domain[domain].append(enriched_job)
-            continue
+        # --- Disabled (see comment above). Restore by uncommenting this block.
+        # if comp_name_lower in recent_companies[domain]:
+        #     cooldown_reserve_by_domain[domain].append(enriched_job)
+        #     continue
 
         regex_passed_by_domain[domain].append(enriched_job)
 
@@ -264,6 +273,9 @@ def run_pipeline() -> bool:
 
         # 8. Top-up: if the cooldown left this sheet short of the minimum, pull the best
         # cooled-down companies back in (newest first) until the sheet reaches MIN_JOBS_PER_SHEET.
+        # NOTE: cooldown_reserve_by_domain is always empty now that the cooldown soft-filter
+        # above is disabled, so this block is currently inert. Restore the cooldown filter to
+        # bring it back.
         if len(selected) < MIN_JOBS_PER_SHEET and cooldown_reserve_by_domain[domain]:
             shortfall = MIN_JOBS_PER_SHEET - len(selected)
             used_companies = {j["company"] for j in selected}

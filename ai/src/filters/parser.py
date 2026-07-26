@@ -67,13 +67,16 @@ EXCLUDE_TITLE_PATTERNS = [
     r"\badministrative\b",
     r"\bfellowship\b",
     r"\bskillbridge\b",
-    r"\bvice\s+president\b",
-    r"\barea\s+vice\b",
-    r"\bstaff\b",
-    r"\bprincipal\b",
-    r"\bdirector\b",
-    r"\bhead\s+of\b",
-    r"\bchief\b",
+    # --- Seniority-level exclusions commented out per request: lead/senior/staff/principal/
+    # director/VP/chief titled roles should now be allowed through rather than excluded
+    # outright. Restore by uncommenting these lines.
+    # r"\bvice\s+president\b",
+    # r"\barea\s+vice\b",
+    # r"\bstaff\b",
+    # r"\bprincipal\b",
+    # r"\bdirector\b",
+    # r"\bhead\s+of\b",
+    # r"\bchief\b",
     r"\bgroup\s+product\b",
 ]
 
@@ -252,19 +255,27 @@ def parse_experience(description: str, title: str = "") -> Tuple[bool, str]:
         if max_exp < min_exp_limit:
             return False, f"Requires {max_exp} yrs (below {min_exp_limit} yrs)"
 
-        # If the maximum experience requested is greater than (max_exp_limit + 2) and title is senior, reject
-        if max_exp > (max_exp_limit + 2) and is_senior_title:
-            return False, f"Requires {max_exp} yrs (Senior/Principal)"
-            
+        # --- Seniority-based rejection commented out per request: don't reject purely because
+        # the title reads senior/lead/director/etc. Genuine stated-year mismatches above are
+        # still hard rejections and are untouched. Restore by uncommenting these two lines.
+        # if max_exp > (max_exp_limit + 2) and is_senior_title:
+        #     return False, f"Requires {max_exp} yrs (Senior/Principal)"
+
         return True, ", ".join(experience_mentions[:2])
-        
+
     # Heuristic fallback: If no years of experience mentioned in description
+    # --- Seniority-based rejection commented out per request: lead/senior/staff/principal/
+    # director/manager/chief/VP titled roles are no longer auto-rejected just for having no
+    # explicit years stated. Restore by uncommenting the block below (and removing the
+    # replacement return that follows it).
+    # if is_senior_title:
+    #     # Senior / Principal titles with no exp details might be too senior
+    #     if any(w in title_lower for w in ["principal", "director", "manager", "chief", "head", "vp"]):
+    #         return False, f"Senior leadership role (assumed > {max_exp_limit} yrs)"
+    #     return True, "Assumed mid-level senior"
     if is_senior_title:
-        # Senior / Principal titles with no exp details might be too senior
-        if any(w in title_lower for w in ["principal", "director", "manager", "chief", "head", "vp"]):
-            return False, f"Senior leadership role (assumed > {max_exp_limit} yrs)"
-        return True, "Assumed mid-level senior"
-        
+        return True, "Assumed senior-level (seniority filter disabled)"
+
     return True, f"Not specified (Assumed {min_exp_limit}-{max_exp_limit} yrs)"
 
 def filter_job(job: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
