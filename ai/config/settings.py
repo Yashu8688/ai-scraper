@@ -148,11 +148,26 @@ class SettingsModule:
         Used only by the on-demand Domain Jobs send (email_client.send_domain_report_email).
         Render blocks outbound SMTP, so that path sends via Resend's HTTPS API instead. The
         daily digest (send_email_with_report) is unaffected and keeps using SMTP as before.
+        Resend's shared sender can only deliver to the account owner's own email without a
+        verified domain -- SendGrid (below) is preferred when configured, since Single Sender
+        Verification lets it send to any recipient without owning a domain.
         """
         val = self._get_db_value("resend_api_key")
         if val is not None:
             return val
         return os.getenv("RESEND_API_KEY", "")
+
+    @property
+    def SENDGRID_API_KEY(self) -> str:
+        """
+        Preferred provider for the on-demand Domain Jobs send (checked before RESEND_API_KEY).
+        Uses Single Sender Verification (settings.EMAIL_FROM) rather than full domain
+        verification, so it can deliver to any recipient once that one address is verified.
+        """
+        val = self._get_db_value("sendgrid_api_key")
+        if val is not None:
+            return val
+        return os.getenv("SENDGRID_API_KEY", "")
 
     @property
     def USE_AI_FILTER(self) -> bool:

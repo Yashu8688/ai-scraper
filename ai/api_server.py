@@ -126,6 +126,7 @@ class SettingsUpdate(BaseModel):
     gemini_api_key: Optional[str] = ""
     claude_api_key: Optional[str] = ""
     resend_api_key: Optional[str] = ""
+    sendgrid_api_key: Optional[str] = ""
 
 class DomainReportSendRequest(BaseModel):
     domain: str  # "cyber", "data", "java", or "dotnet"
@@ -660,7 +661,8 @@ def get_sys_settings(current_user: User = Depends(get_current_user)):
         "email_to": settings.EMAIL_TO,
         "email_from": settings.EMAIL_FROM,
         "claude_api_key": settings.CLAUDE_API_KEY,
-        "resend_api_key": settings.RESEND_API_KEY
+        "resend_api_key": settings.RESEND_API_KEY,
+        "sendgrid_api_key": settings.SENDGRID_API_KEY
     }
 
 @router.post("/settings")
@@ -683,6 +685,8 @@ def update_sys_settings(req: SettingsUpdate, db: Session = Depends(get_db), curr
         db_keys["claude_api_key"] = req.claude_api_key
     if req.resend_api_key:
         db_keys["resend_api_key"] = req.resend_api_key
+    if req.sendgrid_api_key:
+        db_keys["sendgrid_api_key"] = req.sendgrid_api_key
 
     try:
         for k, v in db_keys.items():
@@ -865,7 +869,7 @@ def send_domain_report(
     if not sent:
         raise HTTPException(
             status_code=500,
-            detail="Failed to send email. Check SMTP settings under System Settings."
+            detail="Failed to send email. Check SendGrid/Resend/SMTP settings under System Settings, and check the server logs for the exact provider error."
         )
 
     target = ", ".join(recipient_emails) if recipient_emails else "the default digest recipients"

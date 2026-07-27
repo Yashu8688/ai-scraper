@@ -26,10 +26,12 @@ export default function SettingsPage() {
   const [emailFrom, setEmailFrom] = useState("");
   const [claudeApiKey, setClaudeApiKey] = useState("");
   const [resendApiKey, setResendApiKey] = useState("");
+  const [sendgridApiKey, setSendgridApiKey] = useState("");
 
   const [showPassword, setShowPassword] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showResendKey, setShowResendKey] = useState(false);
+  const [showSendgridKey, setShowSendgridKey] = useState(false);
   
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -57,6 +59,7 @@ export default function SettingsPage() {
       setEmailFrom(settingsData.email_from || "");
       setClaudeApiKey(settingsData.claude_api_key || "");
       setResendApiKey(settingsData.resend_api_key || "");
+      setSendgridApiKey(settingsData.sendgrid_api_key || "");
     }
   }, [settingsData]);
 
@@ -99,7 +102,8 @@ export default function SettingsPage() {
       email_to: emailTo,
       email_from: emailFrom,
       claude_api_key: claudeApiKey,
-      resend_api_key: resendApiKey
+      resend_api_key: resendApiKey,
+      sendgrid_api_key: sendgridApiKey
     };
 
     updateMutation.mutate(payload);
@@ -291,8 +295,29 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">SendGrid API Key</label>
+            <p className="text-[9px] text-[#5B5F4A] leading-normal font-medium">Preferred sender for the on-demand Domain Jobs report (Render blocks direct SMTP). Requires Single Sender Verification for the Sender Address above.</p>
+            <div className="relative">
+              <input
+                type={showSendgridKey ? "text" : "password"}
+                placeholder="SG...."
+                value={sendgridApiKey}
+                onChange={(e) => setSendgridApiKey(e.target.value)}
+                className="w-full rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 pr-10 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
+              />
+              <button
+                type="button"
+                onClick={() => setShowSendgridKey(!showSendgridKey)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-[#5B5F4A] hover:text-[#1E293B]"
+              >
+                {showSendgridKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
             <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Resend API Key</label>
-            <p className="text-[9px] text-[#5B5F4A] leading-normal font-medium">Used to send the on-demand Domain Jobs report (Render blocks direct SMTP, so this goes over Resend's API instead)</p>
+            <p className="text-[9px] text-[#5B5F4A] leading-normal font-medium">Fallback if SendGrid isn't set. Resend's shared sender can only deliver to your own email unless a domain is verified.</p>
             <div className="relative">
               <input
                 type={showResendKey ? "text" : "password"}

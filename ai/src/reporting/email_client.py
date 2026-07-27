@@ -18,6 +18,7 @@ from src.reporting.excel import DOMAIN_REPORT_META
 # IPv4 forced). Resend's HTTPS API is the workaround for the on-demand send only — the daily
 # digest keeps using SMTP as before since it runs from GitHub Actions, which isn't blocked.
 RESEND_API_URL = "https://api.resend.com/emails"
+SENDGRID_API_URL = "https://api.sendgrid.com/v3/mail/send"
 RESEND_DEFAULT_FROM = "onboarding@resend.dev"
 
 logger = logging.getLogger(__name__)
@@ -362,6 +363,40 @@ def _send_domain_report_via_resend(
     logger.info(f"[{domain}] On-demand report emailed via Resend to {', '.join(recipients)} (id={response.json().get('id')})")
     return True
 
+def _send_domain_report_via_sendgrid(
+    domain: str, meta: Dict[str, str], recipients: List[str], html_body: str,
+    file_bytes: bytes, attachment_filename: str,
+) -> bool:
+    """
+    Sends via SendGrid's HTTPS API using Single Sender Verification (settings.EMAIL_FROM
+    must be the verified address) -- unlike Resend's shared sender, this can deliver to any
+    recipient once that one address is verified, with no domain/DNS setup required.
+    """
+    payload = {
+        "personalizations": [{"to": [{"email": addr} for addr in recipients]}],
+        "from": {"email": settings.EMAIL_FROM},
+        "subject": f"{meta['emoji']} {meta['sheet']} — Latest Report",
+        "content": [{"type": "text/html", "value": html_body}],
+        "attachments": [{
+            "filename": attachment_filename,
+            "content": base64.b64encode(file_bytes).decode("ascii"),
+            "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "disposition": "attachment",
+        }],
+    }
+    response = requests.post(
+        SENDGRID_API_URL,
+        headers={"Authorization": f"Bearer {settings.SENDGRID_API_KEY}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=30,
+    )
+    if response.status_code >= 400:
+        logger.error(f"[{domain}] SendGrid API error {response.status_code}: {response.text[:500]}")
+        return False
+
+    logger.info(f"[{domain}] On-demand report emailed via SendGrid to {', '.join(recipients)}")
+    return True
+
 def _send_domain_report_via_smtp(
     domain: str, meta: Dict[str, str], recipients: List[str], html_body: str,
     file_bytes: bytes, attachment_filename: str,
@@ -401,9 +436,12 @@ def send_domain_report_email(domain: str, file_bytes: bytes, recipients: List[st
     "Domain Jobs" page). Identified only by role name — the report's original date is
     deliberately not mentioned in the email.
 
-    Prefers Resend's HTTPS API when RESEND_API_KEY is configured (Render blocks outbound
-    SMTP, which is what this path used before). Falls back to SMTP otherwise, which will
-    only actually work in environments that allow outbound SMTP.
+    Tries providers in order: SendGrid (settings.SENDGRID_API_KEY) -> Resend
+    (settings.RESEND_API_KEY) -> SMTP. SendGrid is preferred since Single Sender
+    Verification lets it deliver to any recipient with no domain/DNS setup; Resend's shared
+    sender can only deliver to the account owner's own email without a verified domain.
+    Render blocks outbound SMTP, so that fallback will only actually work in environments
+    that allow it.
 
     Args:
         recipients: explicit list of addresses to send to (the clients picked on the
@@ -424,6 +462,8 @@ def send_domain_report_email(domain: str, file_bytes: bytes, recipients: List[st
     attachment_filename = f"{meta['prefix']}.xlsx"
 
     try:
+        if settings.SENDGRID_API_KEY:
+            return _send_domain_report_via_sendgrid(domain, meta, recipients, html_body, file_bytes, attachment_filename)
         if settings.RESEND_API_KEY:
             return _send_domain_report_via_resend(domain, meta, recipients, html_body, file_bytes, attachment_filename)
         return _send_domain_report_via_smtp(domain, meta, recipients, html_body, file_bytes, attachment_filename)
