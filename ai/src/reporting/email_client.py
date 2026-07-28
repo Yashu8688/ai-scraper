@@ -11,6 +11,7 @@ from email import encoders
 from pathlib import Path
 from typing import List, Dict, Any
 from config import settings
+from db import get_daily_digest_recipients
 from src.reporting.excel import DOMAIN_REPORT_META
 
 # Render blocks outbound SMTP (confirmed: connections to smtp.gmail.com hang and time out
@@ -255,9 +256,10 @@ def send_email_with_report(excel_paths_by_domain: Dict[str, str], jobs_by_domain
     Sends one email with all domain Excel reports attached to the configured recipient address.
     """
     # 1. Validation check
-    if not settings.SMTP_USER or not settings.SMTP_PASSWORD or not settings.EMAIL_TO:
+    recipients = get_daily_digest_recipients()
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD or not recipients:
         logger.warning(
-            "SMTP credentials or recipient email address are missing in .env settings. "
+            "SMTP credentials or recipient email address(es) are missing. "
             "Email dispatch skipped. (Generate Excel report local only)"
         )
         return False
@@ -278,8 +280,6 @@ def send_email_with_report(excel_paths_by_domain: Dict[str, str], jobs_by_domain
         today_str = datetime.date.today().strftime("%d/%m/%Y")
         total_jobs = sum(len(jobs) for jobs in jobs_by_domain.values())
         subject = f"💼 Multi-Domain Jobs Digest ({today_str}) - {total_jobs} Leads"
-
-        recipients = [e.strip() for e in settings.EMAIL_TO.split(",") if e.strip()]
 
         msg = MIMEMultipart()
         msg["From"] = settings.EMAIL_FROM
@@ -445,17 +445,18 @@ def send_domain_report_email(domain: str, file_bytes: bytes, recipients: List[st
 
     Args:
         recipients: explicit list of addresses to send to (the clients picked on the
-            dashboard). When omitted, falls back to the daily digest's EMAIL_TO list.
+            dashboard). When omitted, falls back to whoever receives the daily digest
+            (get_daily_digest_recipients()).
     """
     meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
 
     if recipients:
         recipients = [e.strip() for e in recipients if e and e.strip()]
     else:
-        recipients = [e.strip() for e in (settings.EMAIL_TO or "").split(",") if e.strip()]
+        recipients = get_daily_digest_recipients()
 
     if not recipients:
-        logger.warning(f"[{domain}] No recipients given and EMAIL_TO is empty. Email skipped.")
+        logger.warning(f"[{domain}] No recipients given and no daily digest recipients configured. Email skipped.")
         return False
 
     html_body = _build_domain_report_html(meta)

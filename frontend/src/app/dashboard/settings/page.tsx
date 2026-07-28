@@ -1,18 +1,24 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { 
-  Save, 
-  Mail, 
-  Sliders, 
-  Key, 
-  Check, 
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  Save,
+  Mail,
+  Sliders,
+  Key,
+  Check,
   AlertCircle,
   Eye,
-  EyeOff
+  EyeOff,
+  Users,
+  Plus,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import api from "@/lib/api";
+
+type DailyRecipient = { id: number; email: string; name: string | null };
 
 export default function SettingsPage() {
   const [minExperience, setMinExperience] = useState(1);
@@ -35,6 +41,47 @@ export default function SettingsPage() {
   
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+
+  const [newDailyEmail, setNewDailyEmail] = useState("");
+  const [newDailyName, setNewDailyName] = useState("");
+
+  const queryClient = useQueryClient();
+
+  const { data: dailyRecipients = [], isLoading: dailyRecipientsLoading } = useQuery<DailyRecipient[]>({
+    queryKey: ["dailyRecipients"],
+    queryFn: async () => {
+      const response = await api.get("/daily-recipients");
+      return response.data;
+    },
+  });
+
+  const addDailyRecipient = useMutation({
+    mutationFn: async () => {
+      const response = await api.post("/daily-recipients", {
+        email: newDailyEmail.trim(),
+        name: newDailyName.trim() || null,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      setNewDailyEmail("");
+      setNewDailyName("");
+      queryClient.invalidateQueries({ queryKey: ["dailyRecipients"] });
+    },
+    onError: (err: any) => {
+      setErrorMsg(err.response?.data?.detail || "Could not add this email.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+  });
+
+  const removeDailyRecipient = useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/daily-recipients/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dailyRecipients"] });
+    },
+  });
 
   // Fetch Current Settings
   const { data: settingsData, isLoading } = useQuery({
@@ -243,26 +290,84 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Sender Address (From)</label>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Sender Address (From)</label>
+            <input
+              type="email"
+              placeholder="sender@gmail.com"
+              value={emailFrom}
+              onChange={(e) => setEmailFrom(e.target.value)}
+              className="w-full rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
+            />
+          </div>
+
+          {/* Daily Digest Recipients — replaces the old single EMAIL_TO text field with an
+              editable list. Adding/removing here changes who receives the automated nightly
+              email; it's separate from the "Send to clients" list on the Domain Jobs page. */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A] flex items-center gap-1.5">
+              <Users className="h-3 w-3" />
+              Daily Digest Recipients
+            </label>
+
+            <div className="rounded-xl border border-[#EADFCF] bg-[#FFF9F0] divide-y divide-[#EADFCF]">
+              {dailyRecipientsLoading ? (
+                <div className="flex items-center gap-2 p-3 text-xs text-[#5B5F4A]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Loading recipients…</span>
+                </div>
+              ) : dailyRecipients.length === 0 ? (
+                <div className="p-3 text-xs text-[#5B5F4A]">
+                  No recipients saved yet. Add one below to receive the automated nightly digest.
+                </div>
+              ) : (
+                dailyRecipients.map((r) => (
+                  <div key={r.id} className="flex items-center gap-2.5 p-2.5">
+                    <span className="flex-1 min-w-0 text-xs">
+                      <span className="font-semibold text-[#1E293B] block truncate">{r.email}</span>
+                      {r.name && <span className="text-[#5B5F4A] text-[11px]">{r.name}</span>}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeDailyRecipient.mutate(r.id)}
+                      className="text-[#C53030] hover:bg-red-50 rounded-lg p-1 transition shrink-0"
+                      title={`Remove ${r.email}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="email"
-                placeholder="sender@gmail.com"
-                value={emailFrom}
-                onChange={(e) => setEmailFrom(e.target.value)}
-                className="w-full rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
+                value={newDailyEmail}
+                onChange={(e) => setNewDailyEmail(e.target.value)}
+                placeholder="receiver@gmail.com"
+                className="flex-1 rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
               />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Recipient Email (EMAIL_TO)</label>
               <input
                 type="text"
-                placeholder="receiver@gmail.com"
-                value={emailTo}
-                onChange={(e) => setEmailTo(e.target.value)}
-                className="w-full rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
+                value={newDailyName}
+                onChange={(e) => setNewDailyName(e.target.value)}
+                placeholder="Name (optional)"
+                className="sm:w-40 rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
               />
+              <button
+                type="button"
+                onClick={() => addDailyRecipient.mutate()}
+                disabled={!newDailyEmail.trim() || addDailyRecipient.isPending}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs font-semibold text-[#1E293B] hover:bg-[#FFF9F0] transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {addDailyRecipient.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5" />
+                )}
+                <span>Add</span>
+              </button>
             </div>
           </div>
         </div>

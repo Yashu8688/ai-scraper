@@ -1,13 +1,14 @@
 import os
 import bcrypt
 import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, Text, LargeBinary, ForeignKey, UniqueConstraint, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from dotenv import load_dotenv
 
 # Load environmental variables
 load_dotenv()
+
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -113,10 +114,24 @@ class DomainReport(Base):
 class Recipient(Base):
     """A saved client email address that domain reports can be sent to on demand.
 
-    Kept separate from the EMAIL_TO setting (which drives the automated daily digest) so
-    adding a client here never changes who receives the scheduled run.
+    Kept separate from DailyRecipient (below) so adding an on-demand client never changes
+    who receives the automated daily digest, and vice versa.
     """
     __tablename__ = "recipients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    name = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class DailyRecipient(Base):
+    """A saved email address that receives the automated daily digest.
+
+    Replaces the old single EMAIL_TO text setting with an editable list. EMAIL_TO is kept
+    as a fallback (see get_daily_digest_recipients) so a run never silently goes to nobody
+    if this table is ever empty.
+    """
+    __tablename__ = "daily_recipients"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
@@ -204,6 +219,26 @@ def get_latest_domain_report(domain: str) -> Optional[Dict[str, Any]]:
             "file_data": row.file_data,
             "job_count": row.job_count,
         }
+    finally:
+        db.close()
+
+def get_daily_digest_recipients() -> List[str]:
+    """
+    Returns the email addresses that should receive the automated daily digest: every
+    saved DailyRecipient, or -- only if that table is empty -- the legacy EMAIL_TO setting
+    split on commas, as a safety net so a run never silently goes to nobody. Queries the
+    Setting table directly (not config.settings) to avoid a circular import.
+    """
+    db = SessionLocal()
+    try:
+        rows = db.query(DailyRecipient).order_by(DailyRecipient.name.asc(), DailyRecipient.email.asc()).all()
+        if rows:
+            return [r.email for r in rows]
+
+        setting = db.query(Setting).filter(Setting.key == "email_to").first()
+        if setting and setting.value:
+            return [e.strip() for e in setting.value.split(",") if e.strip()]
+        return []
     finally:
         db.close()
 

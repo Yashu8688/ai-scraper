@@ -15,7 +15,7 @@ import jwt
 current_dir = Path(__file__).resolve().parent
 sys.path.append(str(current_dir))
 
-from db import SessionLocal, User, Company, Job, ActivityLog, Setting, Recipient, get_db, hash_password, verify_password, init_db, get_latest_domain_report
+from db import SessionLocal, User, Company, Job, ActivityLog, Setting, Recipient, DailyRecipient, get_db, hash_password, verify_password, init_db, get_latest_domain_report, get_daily_digest_recipients
 from scrape_trigger import scrape_single_company
 from config import settings
 from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
@@ -141,6 +141,19 @@ class RecipientCreate(BaseModel):
     name: Optional[str] = None
 
 class RecipientResponse(BaseModel):
+    id: int
+    email: str
+    name: Optional[str]
+    created_at: datetime.datetime
+
+    class Config:
+        orm_mode = True
+
+class DailyRecipientCreate(BaseModel):
+    email: str
+    name: Optional[str] = None
+
+class DailyRecipientResponse(BaseModel):
     id: int
     email: str
     name: Optional[str]
@@ -838,6 +851,58 @@ def delete_recipient(id: int, db: Session = Depends(get_db), current_user: User 
     ))
     db.commit()
     return {"success": True, "message": f"{email} removed."}
+
+
+# --- Daily Digest Recipients: who receives the automated nightly email (separate from
+# the on-demand "recipients" list above, which never affects the scheduled run) ---
+@router.get("/daily-recipients", response_model=List[DailyRecipientResponse])
+def list_daily_recipients(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return db.query(DailyRecipient).order_by(DailyRecipient.name.asc(), DailyRecipient.email.asc()).all()
+
+@router.post("/daily-recipients", response_model=DailyRecipientResponse)
+def create_daily_recipient(
+    req: DailyRecipientCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    import re
+    email = req.email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if db.query(DailyRecipient).filter(DailyRecipient.email == email).first():
+        raise HTTPException(status_code=400, detail="This email address is already saved.")
+
+    recipient = DailyRecipient(email=email, name=(req.name or "").strip() or None)
+    db.add(recipient)
+    db.commit()
+    db.refresh(recipient)
+
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="DAILY_RECIPIENT_ADD",
+        details=f"Added daily digest recipient {recipient.email}."
+    ))
+    db.commit()
+    return recipient
+
+@router.delete("/daily-recipients/{id}")
+def delete_daily_recipient(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    recipient = db.query(DailyRecipient).filter(DailyRecipient.id == id).first()
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Daily recipient not found.")
+
+    email = recipient.email
+    db.delete(recipient)
+    db.commit()
+
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="DAILY_RECIPIENT_DELETE",
+        details=f"Removed daily digest recipient {email}."
+    ))
+    db.commit()
+    return {"success": True, "message": f"{email} removed."}
+
 
 @router.post("/domain-reports/send")
 def send_domain_report(
