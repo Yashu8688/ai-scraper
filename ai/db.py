@@ -2,7 +2,7 @@ import os
 import bcrypt
 import datetime
 from typing import Any, Dict, List, Optional
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, Text, LargeBinary, Boolean, ForeignKey, UniqueConstraint, inspect
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, Text, LargeBinary, Boolean, ForeignKey, UniqueConstraint, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from dotenv import load_dotenv
 
@@ -150,9 +150,28 @@ def get_db():
         db.close()
 
 # Initialize database schemas and seed default user
+def _run_migrations():
+    """
+    Base.metadata.create_all() only creates tables that don't exist yet -- it never alters
+    a table that's already there. Columns added to a model after its table was first created
+    (e.g. Recipient.admin_only) need an explicit ALTER TABLE, done here once and skipped on
+    every later startup once the column is confirmed present.
+    """
+    inspector = inspect(engine)
+    if "recipients" in inspector.get_table_names():
+        existing_cols = {c["name"] for c in inspector.get_columns("recipients")}
+        if "admin_only" not in existing_cols:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE recipients ADD COLUMN admin_only BOOLEAN NOT NULL DEFAULT FALSE"
+                ))
+                conn.commit()
+            print("[DB INIT] Migrated: added recipients.admin_only")
+
 def init_db():
     Base.metadata.create_all(bind=engine)
-    
+    _run_migrations()
+
     # Check if a user table is empty, and seed the default admin
     db = SessionLocal()
     try:
