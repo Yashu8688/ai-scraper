@@ -19,6 +19,7 @@ import {
 import api from "@/lib/api";
 
 const DOMAIN_OPTIONS = [
+  { value: "all", label: "All roles" },
   { value: "data", label: "Data roles" },
   { value: "java", label: "Java roles" },
   { value: "dotnet", label: ".NET roles" },
@@ -41,12 +42,15 @@ export default function DomainJobsPage() {
     setIsAdmin(localStorage.getItem("role") === "admin");
   }, []);
 
+  const isAllDomains = domain === "all";
+
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ["domainReportStatus", domain],
     queryFn: async () => {
       const response = await api.get("/domain-reports/latest", { params: { domain } });
       return response.data;
     },
+    enabled: !isAllDomains,
   });
 
   const { data: recipients = [], isLoading: recipientsLoading } = useQuery<Recipient[]>({
@@ -162,7 +166,12 @@ export default function DomainJobsPage() {
 
         {/* Latest stored report status */}
         <div className="rounded-xl border border-[#EADFCF] bg-[#FFF9F0] p-4 text-xs text-[#5B5F4A] space-y-2">
-          {statusLoading ? (
+          {isAllDomains ? (
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="h-3.5 w-3.5 text-[#2F6F5E]" />
+              <span>Sends whichever of Cyber, Data, Java, .NET currently have a stored report — one email each.</span>
+            </div>
+          ) : statusLoading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>Checking stored reports…</span>
@@ -324,7 +333,7 @@ export default function DomainJobsPage() {
         {/* Send button */}
         <button
           onClick={handleSend}
-          disabled={sendMutation.isPending || !status?.found}
+          disabled={sendMutation.isPending || (!isAllDomains && !status?.found)}
           className="btn-primary inline-flex items-center gap-1.5 text-xs py-2.5 px-5 font-semibold bg-[#C67C2E] text-white hover:bg-[#A9621C] rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {sendMutation.isPending ? (

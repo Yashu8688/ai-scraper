@@ -984,16 +984,11 @@ def send_domain_report(
     current_user: User = Depends(get_current_user)
 ):
     domain = req.domain.strip().lower()
-    if domain not in DOMAINS:
-        raise HTTPException(status_code=400, detail=f"Unsupported domain: {domain}. Must be one of {DOMAINS}.")
+    if domain != "all" and domain not in DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unsupported domain: {domain}. Must be 'all' or one of {DOMAINS}.")
 
-    meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
-    report = get_latest_domain_report(domain)
-    if not report:
-        return {"success": False, "message": "No excel found"}
-
-    # Resolve the clients picked on the dashboard. With none selected, fall back to the
-    # daily digest's EMAIL_TO list so existing behaviour is unchanged.
+    # Resolve the clients picked on the dashboard once, shared by every domain below. With
+    # none selected, falls back to the daily digest's recipient list (unchanged behaviour).
     recipient_emails: List[str] = []
     if req.recipient_ids:
         rows_query = db.query(Recipient).filter(Recipient.id.in_(req.recipient_ids))
@@ -1005,6 +1000,49 @@ def send_domain_report(
         if missing:
             raise HTTPException(status_code=400, detail=f"Unknown recipient id(s): {missing}")
         recipient_emails = [r.email for r in rows]
+    target = ", ".join(recipient_emails) if recipient_emails else "the default digest recipients"
+
+    if domain == "all":
+        sent_labels, skipped_labels, failed_labels = [], [], []
+        for d in DOMAINS:
+            meta = DOMAIN_REPORT_META.get(d, DOMAIN_REPORT_META["cyber"])
+            report = get_latest_domain_report(d)
+            if not report:
+                skipped_labels.append(meta["sheet"])
+                continue
+            if send_domain_report_email(d, report["file_data"], recipients=recipient_emails or None):
+                sent_labels.append(meta["sheet"])
+                db.add(ActivityLog(
+                    user_id=current_user.id,
+                    action="DOMAIN_REPORT_SEND",
+                    details=f"Sent latest {meta['sheet']} report (dated {report['report_date']}) to {target} (bulk 'All' send)."
+                ))
+            else:
+                failed_labels.append(meta["sheet"])
+        db.commit()
+
+        if not sent_labels and not failed_labels:
+            return {"success": False, "message": "No excel found for any domain."}
+
+        parts = []
+        if sent_labels:
+            parts.append(f"Sent: {', '.join(sent_labels)}")
+        if skipped_labels:
+            parts.append(f"No report stored: {', '.join(skipped_labels)}")
+        if failed_labels:
+            parts.append(f"Failed: {', '.join(failed_labels)}")
+        return {
+            "success": len(sent_labels) > 0,
+            "message": " | ".join(parts),
+            "sent": sent_labels,
+            "skipped": skipped_labels,
+            "failed": failed_labels,
+        }
+
+    meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
+    report = get_latest_domain_report(domain)
+    if not report:
+        return {"success": False, "message": "No excel found"}
 
     sent = send_domain_report_email(domain, report["file_data"], recipients=recipient_emails or None)
     if not sent:
@@ -1013,7 +1051,6 @@ def send_domain_report(
             detail="Failed to send email. Check SendGrid/Resend/SMTP settings under System Settings, and check the server logs for the exact provider error."
         )
 
-    target = ", ".join(recipient_emails) if recipient_emails else "the default digest recipients"
     log = ActivityLog(
         user_id=current_user.id,
         action="DOMAIN_REPORT_SEND",
