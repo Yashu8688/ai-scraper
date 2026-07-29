@@ -1,6 +1,8 @@
 import os
 import sys
+import io
 import datetime
+import pandas as pd
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
@@ -15,7 +17,7 @@ import jwt
 current_dir = Path(__file__).resolve().parent
 sys.path.append(str(current_dir))
 
-from db import SessionLocal, User, Company, Job, ActivityLog, Setting, Recipient, DailyRecipient, get_db, hash_password, verify_password, init_db, get_latest_domain_report, get_daily_digest_recipients
+from db import SessionLocal, User, Company, Job, ActivityLog, Setting, Recipient, DailyRecipient, get_db, hash_password, verify_password, init_db, get_latest_domain_report, get_daily_digest_recipients, get_domain_report_dates, get_domain_report_by_date
 from scrape_trigger import scrape_single_company
 from config import settings
 from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
@@ -801,6 +803,67 @@ def get_domain_report_status(
         "report_date": report["report_date"],
         "filename": report["filename"],
         "job_count": report["job_count"],
+    }
+
+@router.get("/domain-reports/dates")
+def get_domain_report_dates_endpoint(domain: str = Query(...), current_user: User = Depends(get_current_user)):
+    """Every date a report was stored for a domain, newest first -- powers the Job Leads date picker."""
+    domain = domain.strip().lower()
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unsupported domain: {domain}. Must be one of {DOMAINS}.")
+    return {"domain": domain, "dates": get_domain_report_dates(domain)}
+
+@router.get("/domain-reports/by-date")
+def get_domain_report_rows(
+    domain: str = Query(...),
+    date: str = Query(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Parses the Excel stored for an exact domain + date and returns its rows as JSON, for the
+    Job Leads page. Field names match the /jobs endpoint's JobResponse shape so the same card
+    UI can render either source.
+    """
+    domain = domain.strip().lower()
+    if domain not in DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unsupported domain: {domain}. Must be one of {DOMAINS}.")
+    try:
+        parsed_date = datetime.date.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format, expected YYYY-MM-DD.")
+
+    meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
+    report = get_domain_report_by_date(domain, parsed_date)
+    if not report:
+        return {"found": False, "domain": domain, "label": meta["sheet"], "date": date, "jobs": []}
+
+    # Same layout generate_styled_excel writes: a 3-row title block, headers on row 4.
+    df = pd.read_excel(io.BytesIO(report["file_data"]), engine="openpyxl", header=3)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    def cell(row, col: str) -> str:
+        val = row.get(col, "")
+        return "" if pd.isna(val) else str(val)
+
+    jobs = [
+        {
+            "company": cell(row, "Company"),
+            "title": cell(row, "Job Title"),
+            "location": cell(row, "Location"),
+            "experience_metadata": cell(row, "Experience Required"),
+            "date_posted": cell(row, "Date Added"),
+            "apply_link": cell(row, "Apply Link"),
+        }
+        for _, row in df.iterrows()
+    ]
+
+    return {
+        "found": True,
+        "domain": domain,
+        "label": meta["sheet"],
+        "date": date,
+        "job_count": report.get("job_count"),
+        "jobs": jobs,
     }
 
 @router.get("/recipients", response_model=List[RecipientResponse])

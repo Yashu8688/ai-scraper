@@ -222,6 +222,36 @@ def get_latest_domain_report(domain: str) -> Optional[Dict[str, Any]]:
     finally:
         db.close()
 
+def get_domain_report_dates(domain: str) -> List[str]:
+    """Returns every date (ISO strings, newest first) a report was stored for a domain."""
+    db = SessionLocal()
+    try:
+        rows = db.query(DomainReport.report_date).filter(DomainReport.domain == domain) \
+            .order_by(DomainReport.report_date.desc()).all()
+        return [r[0].isoformat() for r in rows]
+    finally:
+        db.close()
+
+def get_domain_report_by_date(domain: str, report_date: datetime.date) -> Optional[Dict[str, Any]]:
+    """Returns the stored report for an exact domain + date, or None if none exists."""
+    db = SessionLocal()
+    try:
+        row = db.query(DomainReport).filter(
+            DomainReport.domain == domain,
+            DomainReport.report_date == report_date,
+        ).first()
+        if not row:
+            return None
+        return {
+            "domain": row.domain,
+            "report_date": row.report_date,
+            "filename": row.filename,
+            "file_data": row.file_data,
+            "job_count": row.job_count,
+        }
+    finally:
+        db.close()
+
 def get_daily_digest_recipients() -> List[str]:
     """
     Returns the email addresses that should receive the automated daily digest: every

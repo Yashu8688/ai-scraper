@@ -125,7 +125,7 @@ export default function DomainJobsPage() {
     <div className="space-y-6">
       {/* Page Header */}
       <div>
-        <h1 className="text-xl font-bold tracking-tight text-[#1E293B]">Domain Jobs</h1>
+        <h1 className="text-xl font-bold tracking-tight text-[#1E293B]">Email</h1>
         <p className="text-xs text-[#5B5F4A]">
           Resend the latest stored report for a specific domain, on demand
         </p>

@@ -25,7 +25,7 @@ const navItems = [
       { name: "Overview",         href: "/dashboard",             icon: LayoutDashboard, adminOnly: false },
       { name: "Companies",        href: "/dashboard/companies",   icon: Building2,       adminOnly: false },
       { name: "Job Leads",        href: "/dashboard/jobs",        icon: Briefcase,       adminOnly: false },
-      { name: "Domain Jobs",      href: "/dashboard/domain-jobs", icon: Send,            adminOnly: false },
+      { name: "Email",            href: "/dashboard/domain-jobs", icon: Send,            adminOnly: false },
     ],
   },
   {

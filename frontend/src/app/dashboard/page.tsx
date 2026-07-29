@@ -2,12 +2,9 @@
 
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { 
-  Building2, 
-  Briefcase, 
-  Sparkles, 
-  Terminal, 
-  ChevronRight, 
+import {
+  Building2,
+  ChevronRight,
   RefreshCw,
   TrendingUp,
   Activity
@@ -104,67 +101,16 @@ export default function DashboardOverview() {
         </button>
       </div>
 
-      {/* KPI metrics Grid */}
+      {/* KPI metrics */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Total Companies */}
+        {/* Companies */}
         <div className="border border-[#EADFCF] bg-[#FFFDFC] p-4 rounded-xl shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Tracked Targets</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Companies</span>
             <Building2 className="h-4.5 w-4.5 text-[#2F6F5E]" />
           </div>
           <div className="mt-2.5">
             <span className="text-2xl font-bold text-[#1E293B] tracking-tight">{data.total_companies}</span>
-            <p className="text-[9px] text-[#5B5F4A] mt-0.5">PostgreSQL targets</p>
-          </div>
-        </div>
-
-        {/* Total Jobs */}
-        <div className="border border-[#EADFCF] bg-[#FFFDFC] p-4 rounded-xl shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Total job leads</span>
-            <Briefcase className="h-4.5 w-4.5 text-[#2F6F5E]" />
-          </div>
-          <div className="mt-2.5">
-            <span className="text-2xl font-bold text-[#1E293B] tracking-tight">{data.total_jobs}</span>
-            <p className="text-[9px] text-[#5B5F4A] mt-0.5">Scraped database leads</p>
-          </div>
-        </div>
-
-        {/* Jobs Scraped Today */}
-        <div className="border border-[#EADFCF] bg-[#FFFDFC] p-4 rounded-xl shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Scraped Today</span>
-            <Sparkles className="h-4.5 w-4.5 text-[#2F6F5E]" />
-          </div>
-          <div className="mt-2.5">
-            <span className="text-2xl font-bold text-[#1E293B] tracking-tight">{data.jobs_today}</span>
-            <p className="text-[9px] text-[#5B5F4A] mt-0.5">Last 24 hours</p>
-          </div>
-        </div>
-
-        {/* Active Scrapers */}
-        <div className="border border-[#EADFCF] bg-[#FFFDFC] p-4 rounded-xl shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">Scraper Types</span>
-            <Terminal className="h-4.5 w-4.5 text-[#2F6F5E]" />
-          </div>
-          <div className="mt-2">
-            <div className="flex items-baseline gap-2.5 text-[9px] font-bold text-[#5B5F4A] mt-1">
-              <div>
-                <span>Greenhouse: </span>
-                <span className="text-[#1E293B]">{data.ats_stats?.greenhouse || 0}</span>
-              </div>
-              <div className="h-2 w-px bg-[#EADFCF]"></div>
-              <div>
-                <span>Lever: </span>
-                <span className="text-[#1E293B]">{data.ats_stats?.lever || 0}</span>
-              </div>
-              <div className="h-2 w-px bg-[#EADFCF]"></div>
-              <div>
-                <span>Ashby: </span>
-                <span className="text-[#1E293B]">{data.ats_stats?.ashby || 0}</span>
-              </div>
-            </div>
           </div>
         </div>
       </div>
