@@ -170,7 +170,7 @@ export default function Sidebar() {
                 border: `1px solid ${role === "admin" ? "var(--red-border)" : "var(--border-base)"}`,
               }}
             >
-              {role}
+              {role === "admin" ? "admin" : "user"}
             </span>
           </div>
         </div>
