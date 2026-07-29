@@ -104,12 +104,13 @@ export default function Sidebar() {
 
       {/* ── Navigation ───────────────────────────── */}
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
-        {navItems.map((section) => (
-          <div key={section.label}>
-            <div className="sidebar-section-label">{section.label}</div>
-            {section.items.map((item) => {
-              if (item.adminOnly && role !== "admin") return null;
-              return (
+        {navItems.map((section) => {
+          const visibleItems = section.items.filter((item) => !item.adminOnly || role === "admin");
+          if (visibleItems.length === 0) return null;
+          return (
+            <div key={section.label}>
+              <div className="sidebar-section-label">{section.label}</div>
+              {visibleItems.map((item) => (
                 <NavLink
                   key={item.name}
                   href={item.href}
@@ -118,10 +119,10 @@ export default function Sidebar() {
                   active={pathname === item.href}
                   onClick={() => setIsOpen(false)}
                 />
-              );
-            })}
-          </div>
-        ))}
+              ))}
+            </div>
+          );
+        })}
       </nav>
 
       {/* ── Profile Footer ────────────────────────── */}
