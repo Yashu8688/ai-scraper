@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { 
-  History, 
-  Terminal, 
+import { useRouter } from "next/navigation";
+import {
+  History,
+  Terminal,
   RefreshCw,
   Clock,
   User
@@ -12,23 +13,42 @@ import {
 import api from "@/lib/api";
 
 export default function ActivityPage() {
+  const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loadingRole, setLoadingRole] = useState(true);
   const [page, setPage] = useState(1);
   const [actionFilter, setActionFilter] = useState("");
+
+  // Role validation -- Activity Logs is admin-only, same as Operators.
+  useEffect(() => {
+    const userRole = localStorage.getItem("role");
+    if (userRole !== "admin") {
+      router.push("/dashboard");
+    } else {
+      setIsAdmin(true);
+    }
+    setLoadingRole(false);
+  }, [router]);
 
   // Fetch Activity Logs Query
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["activityLogs", actionFilter, page],
     queryFn: async () => {
       const response = await api.get("/activity", {
-        params: { 
-          page, 
-          action: actionFilter || undefined, 
-          limit: 20 
+        params: {
+          page,
+          action: actionFilter || undefined,
+          limit: 20
         },
       });
       return response.data;
     },
+    enabled: isAdmin,
   });
+
+  if (loadingRole || !isAdmin) {
+    return null;
+  }
 
   const totalPages = data ? Math.ceil(data.total / data.limit) : 1;
 

@@ -633,7 +633,7 @@ def get_activity_logs(
     limit: int = Query(25, ge=1, le=100),
     action: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_admin)
 ):
     query = db.query(ActivityLog)
     if action:
@@ -663,7 +663,7 @@ def get_activity_logs(
 
 # 7. System Settings Endpoints
 @router.get("/settings")
-def get_sys_settings(current_user: User = Depends(get_current_user)):
+def get_sys_settings(current_user: User = Depends(get_current_admin)):
     return {
         "min_experience": settings.EXPERIENCE_MIN_YEARS,
         "max_experience": settings.EXPERIENCE_MAX_YEARS,
@@ -681,7 +681,7 @@ def get_sys_settings(current_user: User = Depends(get_current_user)):
     }
 
 @router.post("/settings")
-def update_sys_settings(req: SettingsUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def update_sys_settings(req: SettingsUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_admin)):
     cooldown = req.company_cooldown_days if req.company_cooldown_days is not None else 14
     # 1. Write settings to database
     db_keys = {

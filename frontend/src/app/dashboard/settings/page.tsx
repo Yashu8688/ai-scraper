@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import {
   Save,
   Mail,
@@ -21,6 +22,21 @@ import api from "@/lib/api";
 type DailyRecipient = { id: number; email: string; name: string | null };
 
 export default function SettingsPage() {
+  const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loadingRole, setLoadingRole] = useState(true);
+
+  // Role validation -- Settings is admin-only, same as Operators.
+  useEffect(() => {
+    const userRole = localStorage.getItem("role");
+    if (userRole !== "admin") {
+      router.push("/dashboard");
+    } else {
+      setIsAdmin(true);
+    }
+    setLoadingRole(false);
+  }, [router]);
+
   const [minExperience, setMinExperience] = useState(1);
   const [maxExperience, setMaxExperience] = useState(6);
   const [useAiFilter, setUseAiFilter] = useState(false);
@@ -53,6 +69,7 @@ export default function SettingsPage() {
       const response = await api.get("/daily-recipients");
       return response.data;
     },
+    enabled: isAdmin,
   });
 
   const addDailyRecipient = useMutation({
@@ -90,6 +107,7 @@ export default function SettingsPage() {
       const response = await api.get("/settings");
       return response.data;
     },
+    enabled: isAdmin,
   });
 
   // Load state when settings data is loaded
@@ -155,6 +173,10 @@ export default function SettingsPage() {
 
     updateMutation.mutate(payload);
   };
+
+  if (loadingRole || !isAdmin) {
+    return null;
+  }
 
   if (isLoading) {
     return (

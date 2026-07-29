@@ -32,8 +32,8 @@ const navItems = [
     label: "Administration",
     items: [
       { name: "Operators",        href: "/dashboard/users",     icon: Users,     adminOnly: true  },
-      { name: "Activity Logs",   href: "/dashboard/activity",  icon: History,   adminOnly: false },
-      { name: "Settings",         href: "/dashboard/settings",  icon: Settings,  adminOnly: false },
+      { name: "Activity Logs",   href: "/dashboard/activity",  icon: History,   adminOnly: true  },
+      { name: "Settings",         href: "/dashboard/settings",  icon: Settings,  adminOnly: true  },
     ],
   },
 ];
