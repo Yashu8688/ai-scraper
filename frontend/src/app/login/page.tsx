@@ -121,11 +121,6 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-
-        {/* Footer seed notes */}
-        <div className="mt-6 text-center text-[10px] text-[#5B5F4A]">
-          Seed account: <span className="font-mono text-[#5B5F4A]/80">admin@cyberjobs.com</span> / <span className="font-mono text-[#5B5F4A]/80">adminpassword123</span>
-        </div>
       </div>
     </div>
   );

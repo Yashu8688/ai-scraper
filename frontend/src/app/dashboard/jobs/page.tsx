@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Briefcase,
@@ -10,6 +10,8 @@ import {
   RefreshCw,
   Award,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   AlertCircle,
 } from "lucide-react";
 import api from "@/lib/api";
@@ -42,6 +44,187 @@ function todayLocalISO() {
   return `${year}-${month}-${day}`;
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function isoOf(year: number, month0: number, day: number) {
+  return `${year}-${pad2(month0 + 1)}-${pad2(day)}`;
+}
+
+function monthIndex(year: number, month0: number) {
+  return year * 12 + month0;
+}
+
+const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+// A native <input type="date"> can't color individual days or block navigation to months
+// with no data at all -- this is a small self-contained calendar built specifically so
+// "has a stored report" days are visually distinct and you can't scroll back before the
+// earliest report that actually exists.
+function ReportCalendar({
+  value,
+  onChange,
+  minDate,
+  maxDate,
+  availableDates,
+  disabled,
+}: {
+  value: string;
+  onChange: (iso: string) => void;
+  minDate?: string;
+  maxDate: string;
+  availableDates: Set<string>;
+  disabled?: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+
+  const anchor = value || minDate || maxDate;
+  const [anchorYear, anchorMonth] = anchor.split("-").map(Number);
+  const [viewYear, setViewYear] = useState(anchorYear);
+  const [viewMonth, setViewMonth] = useState(anchorMonth - 1);
+
+  // Jump the visible month back to the selected date whenever it changes from outside
+  // (e.g. switching domain resets to that domain's latest date).
+  useEffect(() => {
+    const [y, m] = anchor.split("-").map(Number);
+    setViewYear(y);
+    setViewMonth(m - 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const [maxY, maxM] = maxDate.split("-").map(Number);
+  const maxIdx = monthIndex(maxY, maxM - 1);
+  const minIdx = minDate ? (() => { const [y, m] = minDate.split("-").map(Number); return monthIndex(y, m - 1); })() : -Infinity;
+
+  const viewIdx = monthIndex(viewYear, viewMonth);
+  const canGoPrev = viewIdx > minIdx;
+  const canGoNext = viewIdx < maxIdx;
+
+  const goPrev = () => {
+    if (!canGoPrev) return;
+    const idx = viewIdx - 1;
+    setViewYear(Math.floor(idx / 12));
+    setViewMonth(((idx % 12) + 12) % 12);
+  };
+  const goNext = () => {
+    if (!canGoNext) return;
+    const idx = viewIdx + 1;
+    setViewYear(Math.floor(idx / 12));
+    setViewMonth(((idx % 12) + 12) % 12);
+  };
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay();
+  const cells: (number | null)[] = [
+    ...Array(firstWeekday).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+
+  const today = todayLocalISO();
+
+  return (
+    <div ref={containerRef} className="relative w-full sm:w-64">
+      <button
+        type="button"
+        onClick={() => !disabled && setOpen((o) => !o)}
+        disabled={disabled}
+        className="w-full flex items-center justify-between rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] cursor-pointer font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <span>{value ? formatDateLabel(value) : "Pick a date"}</span>
+        <Calendar className="h-3.5 w-3.5 text-[#5B5F4A]" />
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1.5 w-72 rounded-xl border border-[#EADFCF] bg-[#FFFDFC] shadow-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={!canGoPrev}
+              className="rounded-lg p-1 text-[#5B5F4A] hover:bg-[#FFF9F0] disabled:opacity-30 disabled:cursor-not-allowed transition"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-xs font-bold text-[#1E293B]">
+              {MONTH_NAMES[viewMonth]} {viewYear}
+            </span>
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={!canGoNext}
+              className="rounded-lg p-1 text-[#5B5F4A] hover:bg-[#FFF9F0] disabled:opacity-30 disabled:cursor-not-allowed transition"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {WEEKDAY_LABELS.map((w) => (
+              <div key={w} className="text-center text-[9px] font-bold text-[#5B5F4A]/70">{w}</div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, idx) => {
+              if (day === null) return <div key={`blank-${idx}`} />;
+              const iso = isoOf(viewYear, viewMonth, day);
+              const outOfRange = iso > maxDate || (minDate ? iso < minDate : false);
+              const hasReport = availableDates.has(iso);
+              const isSelected = iso === value;
+              const isToday = iso === today;
+
+              return (
+                <button
+                  key={iso}
+                  type="button"
+                  disabled={outOfRange}
+                  onClick={() => { onChange(iso); setOpen(false); }}
+                  className={[
+                    "h-7 w-7 rounded-full text-[10px] font-semibold transition flex items-center justify-center mx-auto",
+                    outOfRange
+                      ? "text-[#5B5F4A]/25 cursor-not-allowed"
+                      : isSelected
+                      ? "bg-[#2F6F5E] text-white"
+                      : hasReport
+                      ? "bg-[#2F6F5E]/15 text-[#2F6F5E] hover:bg-[#2F6F5E]/25 cursor-pointer"
+                      : "text-[#1E293B] hover:bg-[#FFF9F0] cursor-pointer",
+                    isToday && !isSelected ? "ring-1 ring-[#C67C2E]" : "",
+                  ].join(" ")}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-3 mt-3 pt-2.5 border-t border-[#EADFCF] text-[9px] text-[#5B5F4A]">
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-[#2F6F5E]/25 inline-block" />
+              Report stored
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full ring-1 ring-[#C67C2E] inline-block" />
+              Today
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function JobsPage() {
   const [domain, setDomain] = useState("cyber");
   const [selectedDate, setSelectedDate] = useState("");
@@ -54,7 +237,9 @@ export default function JobsPage() {
     },
   });
 
-  const dates: string[] = datesData?.dates || [];
+  const dates: string[] = datesData?.dates || []; // newest first, per the API
+  const earliestDate = dates.length > 0 ? dates[dates.length - 1] : undefined;
+  const availableDates = new Set(dates);
 
   // Default to the most recent available date whenever the domain (or its date list) changes.
   useEffect(() => {
@@ -99,40 +284,41 @@ export default function JobsPage() {
       </div>
 
       {/* Domain + Date selectors */}
-      <div className="flex flex-col gap-4 sm:flex-row items-center border border-[#EADFCF] bg-[#FFFDFC] p-4 rounded-xl shadow-xs">
-        <div className="relative w-full sm:w-64">
-          <select
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            className="w-full appearance-none rounded-xl border border-[#EADFCF] bg-[#FFFDFC] pl-3 pr-8.5 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] cursor-pointer font-semibold"
-          >
-            {DOMAIN_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#5B5F4A] pointer-events-none" />
-        </div>
+      <div className="flex flex-col gap-2 border border-[#EADFCF] bg-[#FFFDFC] p-4 rounded-xl shadow-xs">
+        <div className="flex flex-col gap-4 sm:flex-row items-center">
+          <div className="relative w-full sm:w-64">
+            <select
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              className="w-full appearance-none rounded-xl border border-[#EADFCF] bg-[#FFFDFC] pl-3 pr-8.5 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] cursor-pointer font-semibold"
+            >
+              {DOMAIN_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#5B5F4A] pointer-events-none" />
+          </div>
 
-        <div className="relative w-full sm:w-64">
-          <input
-            type="date"
+          <ReportCalendar
             value={selectedDate}
-            max={todayLocalISO()}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            disabled={datesLoading}
-            className="w-full rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] cursor-pointer font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            onChange={setSelectedDate}
+            minDate={earliestDate}
+            maxDate={todayLocalISO()}
+            availableDates={availableDates}
+            disabled={datesLoading || dates.length === 0}
           />
-        </div>
-        {selectedDate && (
-          <span className="text-[11px] font-semibold text-[#5B5F4A] whitespace-nowrap">
-            {formatDateLabel(selectedDate)}
-          </span>
-        )}
 
-        {jobsData?.found && typeof jobsData.job_count === "number" && (
-          <span className="text-[11px] font-semibold text-[#5B5F4A] whitespace-nowrap">
-            {jobsData.job_count} jobs in this report
-          </span>
+          {jobsData?.found && typeof jobsData.job_count === "number" && (
+            <span className="text-[11px] font-semibold text-[#5B5F4A] whitespace-nowrap">
+              {jobsData.job_count} jobs in this report
+            </span>
+          )}
+        </div>
+
+        {earliestDate && (
+          <p className="text-[10px] text-[#5B5F4A] pl-0.5">
+            {selectedDomainLabel} reports available from {formatDateLabel(earliestDate)} onward
+          </p>
         )}
       </div>
 
@@ -143,6 +329,12 @@ export default function JobsPage() {
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="h-40 rounded-xl bg-[#FFF9F0] border border-[#EADFCF]"></div>
             ))}
+          </div>
+        ) : dates.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-[#5B5F4A]">
+            <AlertCircle className="h-10 w-10 text-[#EADFCF] mb-2" />
+            <h3 className="text-sm font-bold text-[#1E293B]">No reports stored yet for {selectedDomainLabel}</h3>
+            <p className="text-[11px] mt-0.5">Check back after the next daily run, or send one from Email.</p>
           </div>
         ) : !selectedDate ? (
           <div className="flex flex-col items-center justify-center py-16 text-[#5B5F4A]">
