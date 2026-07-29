@@ -141,11 +141,13 @@ class RecipientCreate(BaseModel):
     # package, which is not in requirements.txt and would break the API on deploy.
     email: str
     name: Optional[str] = None
+    admin_only: bool = False
 
 class RecipientResponse(BaseModel):
     id: int
     email: str
     name: Optional[str]
+    admin_only: bool
     created_at: datetime.datetime
 
     class Config:
@@ -868,8 +870,12 @@ def get_domain_report_rows(
 
 @router.get("/recipients", response_model=List[RecipientResponse])
 def list_recipients(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Saved client addresses that domain reports can be sent to."""
-    return db.query(Recipient).order_by(Recipient.name.asc(), Recipient.email.asc()).all()
+    """Saved client addresses that domain reports can be sent to. Non-admins never see
+    recipients marked admin_only."""
+    query = db.query(Recipient)
+    if current_user.role != "admin":
+        query = query.filter(Recipient.admin_only.is_(False))
+    return query.order_by(Recipient.name.asc(), Recipient.email.asc()).all()
 
 @router.post("/recipients", response_model=RecipientResponse)
 def create_recipient(
@@ -884,7 +890,11 @@ def create_recipient(
     if db.query(Recipient).filter(Recipient.email == email).first():
         raise HTTPException(status_code=400, detail="This email address is already saved.")
 
-    recipient = Recipient(email=email, name=(req.name or "").strip() or None)
+    # Only admins can actually mark a recipient admin_only -- a non-admin's request for it
+    # is silently ignored rather than hiding their own addition from themselves.
+    admin_only = req.admin_only if current_user.role == "admin" else False
+
+    recipient = Recipient(email=email, name=(req.name or "").strip() or None, admin_only=admin_only)
     db.add(recipient)
     db.commit()
     db.refresh(recipient)
@@ -900,7 +910,7 @@ def create_recipient(
 @router.delete("/recipients/{id}")
 def delete_recipient(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     recipient = db.query(Recipient).filter(Recipient.id == id).first()
-    if not recipient:
+    if not recipient or (recipient.admin_only and current_user.role != "admin"):
         raise HTTPException(status_code=404, detail="Recipient not found.")
 
     email = recipient.email
@@ -986,7 +996,10 @@ def send_domain_report(
     # daily digest's EMAIL_TO list so existing behaviour is unchanged.
     recipient_emails: List[str] = []
     if req.recipient_ids:
-        rows = db.query(Recipient).filter(Recipient.id.in_(req.recipient_ids)).all()
+        rows_query = db.query(Recipient).filter(Recipient.id.in_(req.recipient_ids))
+        if current_user.role != "admin":
+            rows_query = rows_query.filter(Recipient.admin_only.is_(False))
+        rows = rows_query.all()
         found_ids = {r.id for r in rows}
         missing = [i for i in req.recipient_ids if i not in found_ids]
         if missing:

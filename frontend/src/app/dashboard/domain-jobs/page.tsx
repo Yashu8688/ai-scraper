@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Send,
@@ -14,6 +14,7 @@ import {
   Plus,
   Trash2,
   Users,
+  ShieldCheck,
 } from "lucide-react";
 import api from "@/lib/api";
 
@@ -24,15 +25,21 @@ const DOMAIN_OPTIONS = [
   { value: "cyber", label: "Cyber roles" },
 ];
 
-type Recipient = { id: number; email: string; name: string | null };
+type Recipient = { id: number; email: string; name: string | null; admin_only: boolean };
 
 export default function DomainJobsPage() {
   const queryClient = useQueryClient();
+  const [isAdmin, setIsAdmin] = useState(false);
   const [domain, setDomain] = useState("cyber");
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [newEmail, setNewEmail] = useState("");
   const [newName, setNewName] = useState("");
+  const [newAdminOnly, setNewAdminOnly] = useState(false);
+
+  useEffect(() => {
+    setIsAdmin(localStorage.getItem("role") === "admin");
+  }, []);
 
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ["domainReportStatus", domain],
@@ -55,12 +62,14 @@ export default function DomainJobsPage() {
       const response = await api.post("/recipients", {
         email: newEmail.trim(),
         name: newName.trim() || null,
+        admin_only: isAdmin ? newAdminOnly : false,
       });
       return response.data;
     },
     onSuccess: (created: Recipient) => {
       setNewEmail("");
       setNewName("");
+      setNewAdminOnly(false);
       setFeedback(null);
       // Newly added clients start selected — that is why they were added.
       setSelectedIds((prev) => [...prev, created.id]);
@@ -217,7 +226,15 @@ export default function DomainJobsPage() {
                     className="h-3.5 w-3.5 accent-[#2F6F5E] cursor-pointer"
                   />
                   <span className="flex-1 min-w-0 text-xs">
-                    <span className="font-semibold text-[#1E293B] block truncate">{r.email}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="font-semibold text-[#1E293B] truncate">{r.email}</span>
+                      {isAdmin && r.admin_only && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full border border-[#EADFCF] bg-[#FFF9F0] px-1.5 py-0.5 text-[9px] font-bold text-[#5B5F4A] shrink-0">
+                          <ShieldCheck className="h-2.5 w-2.5" />
+                          Admin only
+                        </span>
+                      )}
+                    </span>
                     {r.name && <span className="text-[#5B5F4A] text-[11px]">{r.name}</span>}
                   </span>
                   <button
@@ -266,6 +283,18 @@ export default function DomainJobsPage() {
               <span>Add</span>
             </button>
           </div>
+
+          {isAdmin && (
+            <label className="flex items-center gap-1.5 text-[11px] text-[#5B5F4A] cursor-pointer w-fit">
+              <input
+                type="checkbox"
+                checked={newAdminOnly}
+                onChange={(e) => setNewAdminOnly(e.target.checked)}
+                className="h-3 w-3 accent-[#2F6F5E] cursor-pointer"
+              />
+              <span>Admin only (hide this client from non-admin users)</span>
+            </label>
+          )}
 
           {selectedIds.length === 0 && recipients.length > 0 && (
             <p className="text-[11px] text-[#5B5F4A]">

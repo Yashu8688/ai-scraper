@@ -2,7 +2,7 @@ import os
 import bcrypt
 import datetime
 from typing import Any, Dict, List, Optional
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, Text, LargeBinary, ForeignKey, UniqueConstraint, inspect
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, Text, LargeBinary, Boolean, ForeignKey, UniqueConstraint, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from dotenv import load_dotenv
 
@@ -122,6 +122,9 @@ class Recipient(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     name = Column(String(255), nullable=True)
+    # Hidden from non-admin users on the Email page's client list when True. Admins always
+    # see every recipient; this only restricts what editors/other roles are shown.
+    admin_only = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class DailyRecipient(Base):
