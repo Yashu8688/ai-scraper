@@ -61,7 +61,8 @@ const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 // A native <input type="date"> can't color individual days or block navigation to months
 // with no data at all -- this is a small self-contained calendar built specifically so
 // "has a stored report" days are visually distinct and you can't scroll back before the
-// earliest report that actually exists.
+// earliest report that actually exists. Styled with the app's real design tokens (see
+// globals.css) rather than one-off hex values, so it matches the rest of the platform.
 function ReportCalendar({
   value,
   onChange,
@@ -140,31 +141,34 @@ function ReportCalendar({
         type="button"
         onClick={() => !disabled && setOpen((o) => !o)}
         disabled={disabled}
-        className="w-full flex items-center justify-between rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] cursor-pointer font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+        className="input w-full flex items-center justify-between cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <span>{value ? formatDateLabel(value) : "Pick a date"}</span>
-        <Calendar className="h-3.5 w-3.5 text-[#5B5F4A]" />
+        <Calendar className="h-3.5 w-3.5" style={{ color: "var(--text-tertiary)" }} />
       </button>
 
       {open && (
-        <div className="absolute z-20 mt-1.5 w-72 rounded-xl border border-[#EADFCF] bg-[#FFFDFC] shadow-lg p-3">
+        <div
+          className="card absolute z-20 mt-1.5 w-72 p-3"
+          style={{ boxShadow: "var(--shadow-lg)" }}
+        >
           <div className="flex items-center justify-between mb-2">
             <button
               type="button"
               onClick={goPrev}
               disabled={!canGoPrev}
-              className="rounded-lg p-1 text-[#5B5F4A] hover:bg-[#FFF9F0] disabled:opacity-30 disabled:cursor-not-allowed transition"
+              className="btn btn-ghost btn-icon-sm disabled:opacity-30"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <span className="text-xs font-bold text-[#1E293B]">
+            <span style={{ fontSize: "0.8125rem", fontWeight: 700, color: "var(--text-primary)" }}>
               {MONTH_NAMES[viewMonth]} {viewYear}
             </span>
             <button
               type="button"
               onClick={goNext}
               disabled={!canGoNext}
-              className="rounded-lg p-1 text-[#5B5F4A] hover:bg-[#FFF9F0] disabled:opacity-30 disabled:cursor-not-allowed transition"
+              className="btn btn-ghost btn-icon-sm disabled:opacity-30"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -172,7 +176,7 @@ function ReportCalendar({
 
           <div className="grid grid-cols-7 gap-1 mb-1">
             {WEEKDAY_LABELS.map((w) => (
-              <div key={w} className="text-center text-[9px] font-bold text-[#5B5F4A]/70">{w}</div>
+              <div key={w} className="text-center text-caption" style={{ fontWeight: 700 }}>{w}</div>
             ))}
           </div>
 
@@ -185,23 +189,30 @@ function ReportCalendar({
               const isSelected = iso === value;
               const isToday = iso === today;
 
+              let style: React.CSSProperties = { fontSize: "0.6875rem", fontWeight: 600 };
+              if (outOfRange) {
+                style = { ...style, color: "var(--text-disabled)", cursor: "not-allowed" };
+              } else if (isSelected) {
+                style = { ...style, background: "var(--color-brand)", color: "#fff" };
+              } else if (hasReport) {
+                style = { ...style, background: "var(--blue-bg)", color: "var(--blue-text)" };
+              } else {
+                style = { ...style, color: "var(--text-primary)" };
+              }
+              if (isToday && !isSelected) {
+                style = { ...style, boxShadow: "inset 0 0 0 1.5px var(--amber-text)" };
+              }
+
               return (
                 <button
                   key={iso}
                   type="button"
                   disabled={outOfRange}
                   onClick={() => { onChange(iso); setOpen(false); }}
-                  className={[
-                    "h-7 w-7 rounded-full text-[10px] font-semibold transition flex items-center justify-center mx-auto",
-                    outOfRange
-                      ? "text-[#5B5F4A]/25 cursor-not-allowed"
-                      : isSelected
-                      ? "bg-[#2F6F5E] text-white"
-                      : hasReport
-                      ? "bg-[#2F6F5E]/15 text-[#2F6F5E] hover:bg-[#2F6F5E]/25 cursor-pointer"
-                      : "text-[#1E293B] hover:bg-[#FFF9F0] cursor-pointer",
-                    isToday && !isSelected ? "ring-1 ring-[#C67C2E]" : "",
-                  ].join(" ")}
+                  style={style}
+                  className={`h-7 w-7 rounded-full flex items-center justify-center mx-auto transition ${
+                    outOfRange ? "" : isSelected ? "" : "hover:opacity-80 cursor-pointer"
+                  }`}
                 >
                   {day}
                 </button>
@@ -209,13 +220,13 @@ function ReportCalendar({
             })}
           </div>
 
-          <div className="flex items-center gap-3 mt-3 pt-2.5 border-t border-[#EADFCF] text-[9px] text-[#5B5F4A]">
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-[#2F6F5E]/25 inline-block" />
+          <div className="flex items-center gap-3 mt-3 pt-2.5 text-caption" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full inline-block" style={{ background: "var(--blue-bg)", boxShadow: "inset 0 0 0 1px var(--blue-border)" }} />
               Report stored
             </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full ring-1 ring-[#C67C2E] inline-block" />
+            <span className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full inline-block" style={{ boxShadow: "inset 0 0 0 1.5px var(--amber-text)" }} />
               Today
             </span>
           </div>
@@ -266,17 +277,15 @@ export default function JobsPage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="page-header">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-[#1E293B]">Job Leads</h1>
-          <p className="text-xs text-[#5B5F4A]">
-            Browse a stored day's report for a specific domain
-          </p>
+          <h1 className="page-title">Job Leads</h1>
+          <p className="page-subtitle">Browse a stored day&apos;s report for a specific domain</p>
         </div>
         <button
           onClick={() => refetch()}
           disabled={isFetching || !selectedDate}
-          className="btn-secondary flex items-center gap-1.5 text-xs py-1.5 px-3 font-semibold rounded-xl"
+          className="btn btn-secondary btn-sm"
         >
           <RefreshCw className={`h-3 w-3 ${isFetching ? "animate-spin" : ""}`} />
           <span>Refresh</span>
@@ -284,19 +293,19 @@ export default function JobsPage() {
       </div>
 
       {/* Domain + Date selectors */}
-      <div className="flex flex-col gap-2 border border-[#EADFCF] bg-[#FFFDFC] p-4 rounded-xl shadow-xs">
-        <div className="flex flex-col gap-4 sm:flex-row items-center">
+      <div className="toolbar flex-col items-stretch sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center w-full">
           <div className="relative w-full sm:w-64">
             <select
               value={domain}
               onChange={(e) => setDomain(e.target.value)}
-              className="w-full appearance-none rounded-xl border border-[#EADFCF] bg-[#FFFDFC] pl-3 pr-8.5 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] cursor-pointer font-semibold"
+              className="input appearance-none pr-8 cursor-pointer"
             >
               {DOMAIN_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-            <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#5B5F4A] pointer-events-none" />
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none" style={{ color: "var(--text-tertiary)" }} />
           </div>
 
           <ReportCalendar
@@ -309,82 +318,78 @@ export default function JobsPage() {
           />
 
           {jobsData?.found && typeof jobsData.job_count === "number" && (
-            <span className="text-[11px] font-semibold text-[#5B5F4A] whitespace-nowrap">
+            <span className="badge badge-blue whitespace-nowrap">
               {jobsData.job_count} jobs in this report
             </span>
           )}
         </div>
-
-        {earliestDate && (
-          <p className="text-[10px] text-[#5B5F4A] pl-0.5">
-            {selectedDomainLabel} reports available from {formatDateLabel(earliestDate)} onward
-          </p>
-        )}
       </div>
+      {earliestDate && (
+        <p className="text-caption -mt-4">
+          {selectedDomainLabel} reports available from {formatDateLabel(earliestDate)} onward
+        </p>
+      )}
 
       {/* Leads Content Board */}
-      <div className="border border-[#EADFCF] bg-[#FFFDFC] p-6 rounded-xl shadow-xs">
+      <div className="card p-6">
         {datesLoading || jobsLoading ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 animate-pulse">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="h-40 rounded-xl bg-[#FFF9F0] border border-[#EADFCF]"></div>
+              <div key={i} className="skeleton h-40"></div>
             ))}
           </div>
         ) : dates.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-[#5B5F4A]">
-            <AlertCircle className="h-10 w-10 text-[#EADFCF] mb-2" />
-            <h3 className="text-sm font-bold text-[#1E293B]">No reports stored yet for {selectedDomainLabel}</h3>
-            <p className="text-[11px] mt-0.5">Check back after the next daily run, or send one from Email.</p>
+          <div className="empty-state">
+            <AlertCircle className="empty-state-icon" />
+            <h3 className="text-title" style={{ fontSize: "0.875rem" }}>No reports stored yet for {selectedDomainLabel}</h3>
+            <p className="text-caption">Check back after the next daily run, or send one from Email.</p>
           </div>
         ) : !selectedDate ? (
-          <div className="flex flex-col items-center justify-center py-16 text-[#5B5F4A]">
-            <AlertCircle className="h-10 w-10 text-[#EADFCF] mb-2" />
-            <h3 className="text-sm font-bold text-[#1E293B]">Pick a date to browse {selectedDomainLabel}</h3>
-            <p className="text-[11px] mt-0.5">Use the calendar above to choose a day.</p>
+          <div className="empty-state">
+            <AlertCircle className="empty-state-icon" />
+            <h3 className="text-title" style={{ fontSize: "0.875rem" }}>Pick a date to browse {selectedDomainLabel}</h3>
+            <p className="text-caption">Use the calendar above to choose a day.</p>
           </div>
         ) : jobsData && !jobsData.found ? (
-          <div className="flex flex-col items-center justify-center py-16 text-[#5B5F4A]">
-            <AlertCircle className="h-10 w-10 text-[#EADFCF] mb-2" />
-            <h3 className="text-sm font-bold text-[#1E293B]">No {selectedDomainLabel} report stored for {formatDateLabel(selectedDate)}</h3>
-            <p className="text-[11px] mt-0.5">Try a different date, or check back after the next daily run.</p>
+          <div className="empty-state">
+            <AlertCircle className="empty-state-icon" />
+            <h3 className="text-title" style={{ fontSize: "0.875rem" }}>No {selectedDomainLabel} report stored for {formatDateLabel(selectedDate)}</h3>
+            <p className="text-caption">Try a different date, or check back after the next daily run.</p>
           </div>
         ) : jobs.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {jobs.map((job: any, idx: number) => (
-              <div key={idx} className="flex flex-col justify-between rounded-xl border border-[#EADFCF] bg-[#FFFDFC] p-4.5 hover:border-[#D1C4B2] hover:shadow-sm transition duration-150">
+              <div key={idx} className="card card-interactive p-4.5 flex flex-col justify-between">
                 <div className="space-y-3">
-                  <div className="flex items-center">
-                    <span className="badge badge-gray text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 border border-[#EADFCF] bg-[#FFF9F0] text-[#5B5F4A]">
-                      {job.company}
-                    </span>
-                  </div>
+                  <span className="badge badge-neutral">{job.company}</span>
 
-                  <h3 className="text-sm font-bold text-[#1E293B] leading-snug line-clamp-2">
+                  <h3 className="text-title truncate-2" style={{ fontSize: "0.8125rem" }}>
                     {job.title}
                   </h3>
 
-                  <div className="space-y-1.5 pt-0.5 text-[10px] text-[#5B5F4A] font-semibold">
+                  <div className="space-y-1.5 pt-0.5 text-caption">
                     <div className="flex items-center gap-1.5">
-                      <MapPin className="h-3 w-3 text-[#5B5F4A]/60 shrink-0" />
+                      <MapPin className="h-3 w-3 shrink-0" style={{ color: "var(--text-disabled)" }} />
                       <span className="truncate">{job.location || "USA / Remote"}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Award className="h-3 w-3 text-[#5B5F4A]/60 shrink-0" />
+                      <Award className="h-3 w-3 shrink-0" style={{ color: "var(--text-disabled)" }} />
                       <span className="truncate">{job.experience_metadata || "Experience details not specified"}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3.5 border-t border-[#FFF9F0] flex items-center justify-between text-[10px] font-bold text-[#5B5F4A]">
+                <div className="mt-4 pt-3.5 flex items-center justify-between text-caption" style={{ borderTop: "1px solid var(--border-subtle)" }}>
                   <span className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3 text-[#5B5F4A]/50" />
+                    <Calendar className="h-3 w-3" style={{ color: "var(--text-disabled)" }} />
                     <span>{job.date_posted || "n/a"}</span>
                   </span>
                   <a
                     href={job.apply_link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[#C67C2E] hover:text-[#A9621C] transition"
+                    className="inline-flex items-center gap-1 font-semibold transition"
+                    style={{ color: "var(--color-brand)" }}
                   >
                     <span>Apply</span>
                     <ExternalLink className="h-3 w-3" />
@@ -394,10 +399,10 @@ export default function JobsPage() {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-16 text-[#5B5F4A]">
-            <Briefcase className="h-10 w-10 text-[#EADFCF] mb-2" />
-            <h3 className="text-sm font-bold text-[#1E293B]">No jobs in this report</h3>
-            <p className="text-[11px] mt-0.5">Try a different date or domain.</p>
+          <div className="empty-state">
+            <Briefcase className="empty-state-icon" />
+            <h3 className="text-title" style={{ fontSize: "0.875rem" }}>No jobs in this report</h3>
+            <p className="text-caption">Try a different date or domain.</p>
           </div>
         )}
       </div>
