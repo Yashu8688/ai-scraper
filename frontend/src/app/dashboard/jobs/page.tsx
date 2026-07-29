@@ -21,10 +21,25 @@ const DOMAIN_OPTIONS = [
   { value: "cyber", label: "Cyber roles" },
 ];
 
+// Deliberately does not use `new Date(iso)` -- that parses a date-only string as UTC
+// midnight, then toLocaleDateString renders it in the viewer's local timezone, which can
+// shift the displayed day backward for anyone west of India (e.g. US viewers saw the
+// previous day). This shows the exact stored date to everyone, regardless of where they are.
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function formatDateLabel(iso: string) {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  return `${MONTH_NAMES[month - 1]} ${day}, ${year}`;
+}
+
+// Local "today" only bounds what's pickable in the calendar (can't be a future date) -- it
+// isn't used to display any stored date, so it doesn't need the same timezone care as above.
+function todayLocalISO() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export default function JobsPage() {
@@ -99,22 +114,20 @@ export default function JobsPage() {
         </div>
 
         <div className="relative w-full sm:w-64">
-          <select
+          <input
+            type="date"
             value={selectedDate}
+            max={todayLocalISO()}
             onChange={(e) => setSelectedDate(e.target.value)}
-            disabled={datesLoading || dates.length === 0}
-            className="w-full appearance-none rounded-xl border border-[#EADFCF] bg-[#FFFDFC] pl-3 pr-8.5 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] cursor-pointer font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {dates.length === 0 ? (
-              <option value="">No stored reports yet</option>
-            ) : (
-              dates.map((d) => (
-                <option key={d} value={d}>{formatDateLabel(d)}</option>
-              ))
-            )}
-          </select>
-          <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#5B5F4A] pointer-events-none" />
+            disabled={datesLoading}
+            className="w-full rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] cursor-pointer font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          />
         </div>
+        {selectedDate && (
+          <span className="text-[11px] font-semibold text-[#5B5F4A] whitespace-nowrap">
+            {formatDateLabel(selectedDate)}
+          </span>
+        )}
 
         {jobsData?.found && typeof jobsData.job_count === "number" && (
           <span className="text-[11px] font-semibold text-[#5B5F4A] whitespace-nowrap">
@@ -131,11 +144,17 @@ export default function JobsPage() {
               <div key={i} className="h-40 rounded-xl bg-[#FFF9F0] border border-[#EADFCF]"></div>
             ))}
           </div>
-        ) : dates.length === 0 ? (
+        ) : !selectedDate ? (
           <div className="flex flex-col items-center justify-center py-16 text-[#5B5F4A]">
             <AlertCircle className="h-10 w-10 text-[#EADFCF] mb-2" />
-            <h3 className="text-sm font-bold text-[#1E293B]">No reports stored yet for {selectedDomainLabel}</h3>
-            <p className="text-[11px] mt-0.5">Check back after the next daily run, or send one from Email.</p>
+            <h3 className="text-sm font-bold text-[#1E293B]">Pick a date to browse {selectedDomainLabel}</h3>
+            <p className="text-[11px] mt-0.5">Use the calendar above to choose a day.</p>
+          </div>
+        ) : jobsData && !jobsData.found ? (
+          <div className="flex flex-col items-center justify-center py-16 text-[#5B5F4A]">
+            <AlertCircle className="h-10 w-10 text-[#EADFCF] mb-2" />
+            <h3 className="text-sm font-bold text-[#1E293B]">No {selectedDomainLabel} report stored for {formatDateLabel(selectedDate)}</h3>
+            <p className="text-[11px] mt-0.5">Try a different date, or check back after the next daily run.</p>
           </div>
         ) : jobs.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
