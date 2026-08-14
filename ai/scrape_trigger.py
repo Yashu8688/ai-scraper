@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).resolve().parent))
 
 from db import SessionLocal, Company, Job, ActivityLog
 from config import settings
-from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
+from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, WorkdayScraper
 from src.filters import filter_job, verify_job_with_ai
 
 logger = logging.getLogger("scrape_trigger")
@@ -33,6 +33,7 @@ def scrape_single_company(company_id: int, user_id: int = None) -> Dict[str, Any
         "greenhouse": GreenhouseScraper,
         "lever": LeverScraper,
         "ashby": AshbyScraper,
+        "workday": WorkdayScraper,
     }
     scraper_cls = api_scrapers.get((company.ats or "").lower().strip())
     if not scraper_cls or not (company.token or "").strip():
@@ -41,7 +42,7 @@ def scrape_single_company(company_id: int, user_id: int = None) -> Dict[str, Any
             "success": False,
             "error": (
                 f"{company.name} has no usable ATS API token (ats='{company.ats}'). "
-                f"Set the ATS to greenhouse, lever, or ashby with a valid token to scrape it."
+                f"Set the ATS to greenhouse, lever, ashby, or workday with a valid token to scrape it."
             ),
         }
     scraper = scraper_cls(company.name, company.token, company.careers_url)

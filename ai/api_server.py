@@ -20,7 +20,7 @@ sys.path.append(str(current_dir))
 from db import SessionLocal, User, Company, Job, ActivityLog, Setting, Recipient, DailyRecipient, get_db, hash_password, verify_password, init_db, get_latest_domain_report, get_daily_digest_recipients, get_domain_report_dates, get_domain_report_by_date
 from scrape_trigger import scrape_single_company
 from config import settings
-from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
+from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, WorkdayScraper
 from src.orchestrator import scrape_try_all, DOMAINS
 from src.reporting import send_domain_report_email
 from src.reporting.excel import DOMAIN_REPORT_META
@@ -76,7 +76,7 @@ class UserResponse(BaseModel):
 
 class CompanyCreate(BaseModel):
     name: str
-    ats: str  # "greenhouse", "lever", "ashby", "playwright"
+    ats: str  # "greenhouse", "lever", "ashby", "workday", "playwright"
     token: Optional[str] = None
     careers_url: Optional[str] = ""
 
@@ -386,7 +386,30 @@ def validate_and_detect_ats(ats: str, token: Optional[str], careers_url: Optiona
             )
         return "ashby"
 
-    # 4. Playwright Custom Crawler
+    # 4. Workday
+    elif ats == "workday":
+        if not token_str or token_str.count(".") != 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Workday token must be 'tenant.data_center.site' (e.g. 'amgen.wd1.Careers'), "
+                       "taken from the company's real careers URL after it redirects to "
+                       "https://tenant.data_center.myworkdayjobs.com/site."
+            )
+        try:
+            scraper = WorkdayScraper(company_name, token_str, url_str)
+            jobs = scraper.scrape()
+            if not jobs:
+                raise ValueError("No jobs returned")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not find a job board for this company — check the token/URL and ATS type."
+            )
+        return "workday"
+
+    # 5. Playwright Custom Crawler
     elif ats == "playwright":
         if not url_str:
             raise HTTPException(status_code=400, detail="Careers Page URL is required for Playwright Custom Crawler.")
@@ -413,7 +436,7 @@ def validate_and_detect_ats(ats: str, token: Optional[str], careers_url: Optiona
             )
         return "playwright"
 
-    # 5. "All" (Try to auto-detect)
+    # 6. "All" (Try to auto-detect)
     elif ats == "all":
         # Make sure at least token or careers_url is provided
         if not token_str and not url_str:

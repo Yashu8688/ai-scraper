@@ -261,6 +261,7 @@ export default function CompaniesPage() {
             <option value="greenhouse">Greenhouse API</option>
             <option value="lever">Lever API</option>
             <option value="ashby">Ashby API</option>
+            <option value="workday">Workday API</option>
             <option value="playwright">Playwright Custom Crawler</option>
           </select>
           <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#5B5F4A] pointer-events-none" />
@@ -428,6 +429,7 @@ export default function CompaniesPage() {
                     <option value="greenhouse">Greenhouse API</option>
                     <option value="lever">Lever API</option>
                     <option value="ashby">Ashby API</option>
+                    <option value="workday">Workday API</option>
                     <option value="playwright">Playwright Custom Crawler</option>
                     <option value="all">All (Auto-Detect)</option>
                   </select>
@@ -440,11 +442,12 @@ export default function CompaniesPage() {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">
                     ATS Token Slug{ats === "all" && <span className="font-normal text-[#5B5F4A]/60 normal-case tracking-normal"> (optional for Auto-Detect)</span>}
+                    {ats === "workday" && <span className="font-normal text-[#5B5F4A]/60 normal-case tracking-normal"> (tenant.data_center.site)</span>}
                   </label>
                   <input
                     type="text"
                     required={ats !== "all"}
-                    placeholder={ats === "all" ? "e.g. cloudflare (optional if URL provided)" : "e.g. cloudflare"}
+                    placeholder={ats === "all" ? "e.g. cloudflare (optional if URL provided)" : ats === "workday" ? "e.g. amgen.wd1.Careers" : "e.g. cloudflare"}
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
                     className="w-full rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"
@@ -536,6 +539,7 @@ export default function CompaniesPage() {
                     <option value="greenhouse">Greenhouse API</option>
                     <option value="lever">Lever API</option>
                     <option value="ashby">Ashby API</option>
+                    <option value="workday">Workday API</option>
                     <option value="playwright">Playwright Custom Scraper</option>
                     <option value="all">All (Auto-Detect)</option>
                   </select>
@@ -548,11 +552,12 @@ export default function CompaniesPage() {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-[#5B5F4A]">
                     ATS Token Slug{ats === "all" && <span className="font-normal text-[#5B5F4A]/60 normal-case tracking-normal"> (optional for Auto-Detect)</span>}
+                    {ats === "workday" && <span className="font-normal text-[#5B5F4A]/60 normal-case tracking-normal"> (tenant.data_center.site)</span>}
                   </label>
                   <input
                     type="text"
                     required={ats !== "all"}
-                    placeholder={ats === "all" ? "e.g. cloudflare (optional if URL provided)" : "e.g. cloudflare"}
+                    placeholder={ats === "all" ? "e.g. cloudflare (optional if URL provided)" : ats === "workday" ? "e.g. amgen.wd1.Careers" : "e.g. cloudflare"}
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
                     className="w-full rounded-xl border border-[#EADFCF] bg-[#FFFDFC] px-3 py-2 text-xs text-[#1E293B] outline-none focus:border-[#2F6F5E] focus:ring-2 focus:ring-[#2F6F5E]/10 transition"

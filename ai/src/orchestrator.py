@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from config import settings
 from db import save_domain_report
-from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper
+from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, WorkdayScraper
 from src.filters import filter_job, verify_job_with_ai
 from src.storage import load_history_signatures, is_duplicate_job, purge_expired_history
 from src.reporting import generate_styled_excel, send_email_with_report
@@ -140,6 +140,7 @@ def run_pipeline() -> bool:
         "greenhouse": GreenhouseScraper,
         "lever": LeverScraper,
         "ashby": AshbyScraper,
+        "workday": WorkdayScraper,
     }
 
     skipped_companies: List[str] = []
