@@ -59,46 +59,14 @@ DOMAIN_EMAIL_META = {
 }
 
 def build_domain_section_html(domain: str, jobs: List[Dict[str, Any]]) -> str:
-    """Builds the HTML block (heading + summary + preview table) for a single domain."""
+    """Builds the HTML block (heading + count only) for a single domain."""
     meta = DOMAIN_EMAIL_META.get(domain, {"heading": domain.title(), "emoji": "📌"})
-
-    table_rows = ""
-    for idx, job in enumerate(jobs[:10], 1):  # Show top 10 previews per domain
-        zebra_class = 'class="zebra"' if idx % 2 == 0 else ""
-        table_rows += f"""
-        <tr {zebra_class}>
-            <td style="text-align: center;">{idx}</td>
-            <td><strong>{job.get('company')}</strong></td>
-            <td>{job.get('title')}</td>
-            <td>{job.get('location')}</td>
-            <td>{job.get('experience_metadata', 'Not Specified')}</td>
-            <td><a href="{job.get('apply_link')}" class="btn">Apply</a></td>
-        </tr>
-        """
-
-    more_jobs_count = max(0, len(jobs) - 10)
-    footer_preview_note = ""
-    if more_jobs_count > 0:
-        footer_preview_note = f"<p class='note'>...and {more_jobs_count} more job leads in the attached Excel file!</p>"
-
     return f"""
-    <h2 class="domain-heading">{meta['emoji']} {meta['heading']} — {len(jobs)} Leads</h2>
-    <table>
-        <thead>
-            <tr>
-                <th style="width: 5%; text-align: center;">#</th>
-                <th style="width: 25%;">Company</th>
-                <th style="width: 35%;">Job Title</th>
-                <th style="width: 15%;">Location</th>
-                <th style="width: 10%;">Exp</th>
-                <th style="width: 10%;">Link</th>
-            </tr>
-        </thead>
-        <tbody>
-            {table_rows}
-        </tbody>
-    </table>
-    {footer_preview_note}
+    <div class="domain-row">
+        <span class="domain-emoji">{meta['emoji']}</span>
+        <span class="domain-name">{meta['heading']}</span>
+        <span class="domain-count">{len(jobs)} Leads</span>
+    </div>
     """
 
 def build_html_body(jobs_by_domain: Dict[str, List[Dict[str, Any]]]) -> str:
@@ -166,47 +134,31 @@ def build_html_body(jobs_by_domain: Dict[str, List[Dict[str, Any]]]) -> str:
                 font-size: 15px;
                 color: #1F4E79;
             }}
-            table {{
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 15px;
-                font-size: 13px;
-            }}
-            th {{
-                background-color: #1F4E79;
-                color: #ffffff;
-                text-align: left;
-                padding: 10px;
-                font-weight: 600;
-            }}
-            td {{
-                padding: 10px;
-                border-bottom: 1px solid #e1e8ed;
-                vertical-align: middle;
-            }}
-            tr.zebra {{
+            .domain-row {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 14px 16px;
+                margin-top: 12px;
                 background-color: #F8FAFC;
+                border: 1px solid #e1e8ed;
+                border-radius: 6px;
+                font-size: 15px;
             }}
-            .btn {{
-                display: inline-block;
-                padding: 6px 12px;
-                background-color: #1F4E79;
-                color: #ffffff !important;
-                text-decoration: none;
-                border-radius: 4px;
+            .domain-row:first-of-type {{
+                margin-top: 0;
+            }}
+            .domain-emoji {{
+                margin-right: 10px;
+            }}
+            .domain-name {{
+                color: #1F4E79;
                 font-weight: 600;
-                font-size: 11px;
-                text-align: center;
+                flex: 1;
             }}
-            .btn:hover {{
-                background-color: #153553;
-            }}
-            .note {{
-                font-style: italic;
-                color: #666666;
-                margin-top: 15px;
-                text-align: center;
-                font-size: 14px;
+            .domain-count {{
+                color: #1F4E79;
+                font-weight: 700;
             }}
             .footer {{
                 background-color: #f4f7f9;
@@ -215,16 +167,6 @@ def build_html_body(jobs_by_domain: Dict[str, List[Dict[str, Any]]]) -> str:
                 font-size: 11px;
                 color: #888888;
                 border-top: 1px solid #e1e8ed;
-            }}
-            .domain-heading {{
-                margin: 30px 0 5px 0;
-                font-size: 17px;
-                color: #1F4E79;
-                border-bottom: 2px solid #DDEBF7;
-                padding-bottom: 6px;
-            }}
-            .domain-heading:first-of-type {{
-                margin-top: 0;
             }}
         </style>
     </head>
