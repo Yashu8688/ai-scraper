@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from config import settings
 from db import save_domain_report
-from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, WorkdayScraper
+from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, WorkdayScraper, PlaywrightScraper
 from src.filters import filter_job, verify_job_with_ai
 from src.storage import load_history_signatures, is_duplicate_job, purge_expired_history
 from src.reporting import generate_styled_excel, send_email_with_report
@@ -128,13 +128,13 @@ def run_pipeline() -> bool:
 
     # 3. Scrape Jobs from all configured companies.
     #
-    # Only real ATS APIs are used. The old Playwright fallback scraped every <a> tag on a
-    # careers page and treated any link containing "security" as a job, which produced
-    # nav-menu links ("Security", "Information Security Careers") with a fake
-    # location of "USA (Verify)" — those passed the filters and reached the report.
-    # It also caused ~131 errors/run (dead domains, bot blocks, 30s timeouts) and added
-    # ~3 hours of runtime for <2% of raw jobs. Companies without a usable ATS token are
-    # now skipped and reported so they can be fixed via the dashboard.
+    # Companies on a real ATS API (Greenhouse/Lever/Ashby/Workday) are scraped sequentially —
+    # each is a single fast HTTP call. Companies without one of those ("playwright") fall back
+    # to PlaywrightScraper, which — unlike the old removed version that treated any <a> tag as
+    # a job (see git history) — only extracts real schema.org JobPosting structured data and
+    # returns nothing rather than guessing when a site has none. Since that involves a real
+    # headless-browser page load per company, those run as a separate, concurrent batch so a
+    # few hundred of them don't turn into hours of sequential wall-clock time.
     raw_jobs: List[Dict[str, Any]] = []
     API_SCRAPERS = {
         "greenhouse": GreenhouseScraper,
@@ -142,15 +142,24 @@ def run_pipeline() -> bool:
         "ashby": AshbyScraper,
         "workday": WorkdayScraper,
     }
+    PLAYWRIGHT_CONCURRENCY = 6
 
     skipped_companies: List[str] = []
     scraped_count = 0
+    playwright_companies = []
 
     for comp in companies:
         name = comp.get("name")
         ats_type = (comp.get("ats") or "").lower().strip()
         token = (comp.get("token") or "").strip()
         careers_url = comp.get("careers_url", "")
+
+        if ats_type == "playwright":
+            if careers_url:
+                playwright_companies.append(comp)
+            else:
+                skipped_companies.append(f"{name} (ats=playwright, careers_url=missing)")
+            continue
 
         scraper_cls = API_SCRAPERS.get(ats_type)
         if not scraper_cls or not token:
@@ -163,6 +172,23 @@ def run_pipeline() -> bool:
             scraped_count += 1
         except Exception as e:
             logger.error(f"Failed to run scraper for {name}: {str(e)}", exc_info=True)
+
+    if playwright_companies:
+        import concurrent.futures
+
+        def _scrape_playwright(comp):
+            try:
+                return comp.get("name"), PlaywrightScraper(comp.get("name"), "", comp.get("careers_url", "")).scrape()
+            except Exception as e:
+                logger.error(f"Failed to run Playwright scraper for {comp.get('name')}: {str(e)}", exc_info=True)
+                return comp.get("name"), []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=PLAYWRIGHT_CONCURRENCY) as executor:
+            for name, company_jobs in executor.map(_scrape_playwright, playwright_companies):
+                if company_jobs:
+                    raw_jobs.extend(company_jobs)
+                    scraped_count += 1
+        logger.info(f"Playwright tier: attempted {len(playwright_companies)} companies with no supported ATS API.")
 
     logger.info(f"Collected a total of {len(raw_jobs)} raw jobs from {scraped_count} ATS-backed companies.")
     if skipped_companies:

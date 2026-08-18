@@ -26,10 +26,15 @@ jobs:
         cache: 'pip'
 
     - name: Install Dependencies
-      # No browser install: the pipeline scrapes ATS APIs only.
       run: |
         python -m pip install --upgrade pip
         pip install -r ai/requirements.txt
+
+    - name: Install Playwright browser
+      # Needed by the "playwright" ATS fallback (companies without a Greenhouse/Lever/
+      # Ashby/Workday API) — it only extracts real schema.org JobPosting structured data,
+      # never a guessed result. See ai/src/scrapers/playwright_scraper.py.
+      run: python -m playwright install --with-deps chromium
 
     - name: Run Job Aggregator
       working-directory: ai
