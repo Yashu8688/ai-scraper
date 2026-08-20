@@ -15,13 +15,24 @@ DOMAIN_CRITERIA = {
             "   - REJECT: Physical Security Guard, Food Safety, IT Helpdesk (non-security), Generic Software Engineer, Sales, Marketing, HR."
         ),
     },
-    "data": {
-        "persona": "expert data/analytics recruiter",
-        "role_label": "DATA ROLE",
+    "data_analyst": {
+        "persona": "expert data/BI analytics recruiter",
+        "role_label": "DATA ANALYST ROLE",
         "role_rules": (
-            "   - ACCEPT: Data Engineer, Data Analyst, BI Developer/Analyst, Power BI Developer, Analytics Engineer, "
-            "ETL/ELT Developer, Data Warehouse Engineer, roles centered on Tableau, Looker, Snowflake, Databricks, dbt, Spark, Airflow.\n"
-            "   - REJECT: Data Entry Clerk, generic Software Engineer with no data focus, Sales/Marketing Analyst without technical data work, ML Research Scientist (unless clearly data engineering/analytics)."
+            "   - ACCEPT: Data Analyst, Business Intelligence Analyst/Developer, Reporting Analyst, "
+            "roles centered on Tableau, Power BI, Looker, or SQL-based reporting/analysis.\n"
+            "   - REJECT: Data Entry Clerk, generic Software Engineer with no data focus, Sales/Marketing Analyst without "
+            "technical data work, and any role that's really Data Engineering (building pipelines/ETL/data platforms) rather than analysis/reporting."
+        ),
+    },
+    "data_engineer": {
+        "persona": "expert data engineering recruiter",
+        "role_label": "DATA ENGINEER ROLE",
+        "role_rules": (
+            "   - ACCEPT: Data Engineer, Analytics Engineer, ETL/ELT Developer, Data Warehouse Engineer, Data Platform Engineer, "
+            "roles centered on Databricks, Snowflake, dbt, Spark, Airflow, or building/maintaining data pipelines.\n"
+            "   - REJECT: Data Entry Clerk, generic Software Engineer with no data focus, ML Research Scientist (unless clearly "
+            "data engineering), and any role that's really a Data Analyst/BI reporting role rather than pipeline/platform engineering."
         ),
     },
     "java": {

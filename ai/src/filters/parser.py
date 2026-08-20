@@ -13,13 +13,22 @@ SECURITY_KEYWORDS = [
     r"\bthreat\b", r"\bincident\b", r"\bsiem\b", r"\bcryptography\b"
 ]
 
-# Keywords that indicate a Data Engineering / Data Analyst / BI role
-DATA_KEYWORDS = [
-    r"\bdata\s+engineer(ing)?\b", r"\bdata\s+analy(st|tics)\b", r"\bbusiness\s+intelligence\b",
-    r"\bbi\s+developer\b", r"\bbi\s+analyst\b", r"\bpower\s*bi\b", r"\betl\b", r"\belt\b",
-    r"\bdata\s+warehouse\b", r"\bdata\s+pipeline\b", r"\bdata\s+platform\b",
-    r"\banalytics\s+engineer\b", r"\bdatabricks\b", r"\bsnowflake\b", r"\btableau\b",
-    r"\blooker\b", r"\bdbt\b", r"\bspark\b", r"\bairflow\b", r"\bbig\s*data\b",
+# Keywords that indicate a Data Analyst / BI role
+DATA_ANALYST_KEYWORDS = [
+    r"\bdata\s+analy(st|tics)\b", r"\bdata\s+\w+\s+analyst\b",
+    r"\bbusiness\s+intelligence\s+analyst\b", r"\bbi\s+analyst\b",
+    r"\breporting\s+analyst\b", r"\bbi\s+developer\b",
+    r"\bpower\s*bi\b", r"\btableau\b", r"\blooker\b",
+    r"\bbusiness\s+intelligence\b",
+]
+
+# Keywords that indicate a Data Engineering role
+DATA_ENGINEER_KEYWORDS = [
+    r"\bdata\s+engineer(ing)?\b", r"\bdata\s+\w+\s+engineer\b",
+    r"\betl\b", r"\belt\b", r"\bdata\s+warehouse\b", r"\bdata\s+pipeline\b",
+    r"\bdata\s+platform\b", r"\banalytics\s+engineer\b",
+    r"\bdatabricks\b", r"\bsnowflake\b", r"\bdbt\b", r"\bspark\b",
+    r"\bairflow\b", r"\bbig\s*data\b",
 ]
 
 # Keywords that indicate a Java Developer role
@@ -39,9 +48,12 @@ DOTNET_KEYWORDS = [
 ]
 
 # Domain registry: name -> (keywords, extra_exclude_patterns)
+# data_engineer is checked before data_analyst so an ambiguous title like "Data Analytics
+# Engineer" resolves to the engineering domain rather than the analyst one.
 DOMAIN_KEYWORDS = {
     "cyber": SECURITY_KEYWORDS,
-    "data": DATA_KEYWORDS,
+    "data_engineer": DATA_ENGINEER_KEYWORDS,
+    "data_analyst": DATA_ANALYST_KEYWORDS,
     "java": JAVA_KEYWORDS,
     "dotnet": DOTNET_KEYWORDS,
 }
@@ -164,7 +176,8 @@ def is_cyber_security_role(title: str) -> bool:
 
 def classify_domain(title: str, description: str = "") -> str:
     """
-    Classifies a job into one of the target domains: 'cyber', 'data', 'java', 'dotnet'.
+    Classifies a job into one of the target domains: 'cyber', 'data_engineer', 'data_analyst',
+    'java', 'dotnet'.
     Returns None if nothing matches. Seniority/non-role exclusions (EXCLUDE_TITLE_PATTERNS)
     still apply.
 

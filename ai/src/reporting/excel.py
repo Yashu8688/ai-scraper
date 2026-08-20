@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 # Domain -> (file prefix, sheet name, report title, emoji)
 DOMAIN_REPORT_META = {
     "cyber": {"prefix": "CyberJobs", "sheet": "Cyber Jobs", "title": "CYBER SECURITY JOB LEADS (1-6 YRS EXP)", "emoji": "🇺🇸"},
-    "data": {"prefix": "DataJobs", "sheet": "Data Jobs", "title": "DATA ENGINEERING / ANALYTICS JOB LEADS (1-6 YRS EXP)", "emoji": "📊"},
+    "data_analyst": {"prefix": "DataAnalystJobs", "sheet": "Data Analyst Jobs", "title": "DATA ANALYST JOB LEADS (1-6 YRS EXP)", "emoji": "📊"},
+    "data_engineer": {"prefix": "DataEngineerJobs", "sheet": "Data Engineer Jobs", "title": "DATA ENGINEER JOB LEADS (1-6 YRS EXP)", "emoji": "🛠️"},
     "java": {"prefix": "JavaJobs", "sheet": "Java Jobs", "title": "JAVA DEVELOPER JOB LEADS (1-6 YRS EXP)", "emoji": "☕"},
     "dotnet": {"prefix": "DotNetJobs", "sheet": ".NET Jobs", "title": ".NET DEVELOPER JOB LEADS (1-6 YRS EXP)", "emoji": "🔷"},
 }

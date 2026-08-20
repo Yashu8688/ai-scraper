@@ -8,10 +8,12 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Filename prefix -> domain, used for history scanning and per-domain dedup/cooldown.
+# Filename prefix -> domain, used for history scanning and per-domain dedup/cooldown. Must
+# stay in sync with DOMAIN_REPORT_META's "prefix" field in src/reporting/excel.py.
 HISTORY_FILE_PREFIX_TO_DOMAIN = {
     "CyberJobs": "cyber",
-    "DataJobs": "data",
+    "DataAnalystJobs": "data_analyst",
+    "DataEngineerJobs": "data_engineer",
     "JavaJobs": "java",
     "DotNetJobs": "dotnet",
 }

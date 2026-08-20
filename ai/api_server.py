@@ -131,7 +131,7 @@ class SettingsUpdate(BaseModel):
     sendgrid_api_key: Optional[str] = ""
 
 class DomainReportSendRequest(BaseModel):
-    domain: str  # "cyber", "data", "java", or "dotnet"
+    domain: str  # "cyber", "data_analyst", "data_engineer", "java", or "dotnet"
     # Recipient ids picked on the dashboard. Empty/omitted falls back to the daily
     # digest's EMAIL_TO list, preserving the previous behaviour.
     recipient_ids: Optional[List[int]] = None

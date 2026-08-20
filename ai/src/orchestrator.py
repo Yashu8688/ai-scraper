@@ -12,8 +12,9 @@ from src.reporting import generate_styled_excel, send_email_with_report
 
 logger = logging.getLogger(__name__)
 
-# All domains the pipeline tracks and reports on separately.
-DOMAINS = ["cyber", "data", "java", "dotnet"]
+# All domains the pipeline tracks and reports on separately. data_analyst/data_engineer
+# replaced the single combined "data" domain, one Excel sheet each.
+DOMAINS = ["cyber", "data_analyst", "data_engineer", "java", "dotnet"]
 
 # Target size of every domain's Excel sheet. Each row is a distinct company, so these are
 # also the minimum/maximum number of unique companies per sheet. When the 14-day company

@@ -53,7 +53,8 @@ class IPv4OnlySMTP(smtplib.SMTP):
 # Domain -> (section heading, emoji), used to build the combined email body
 DOMAIN_EMAIL_META = {
     "cyber": {"heading": "Cyber Security", "emoji": "🇺🇸"},
-    "data": {"heading": "Data Engineering / Analytics", "emoji": "📊"},
+    "data_analyst": {"heading": "Data Analyst", "emoji": "📊"},
+    "data_engineer": {"heading": "Data Engineer", "emoji": "🛠️"},
     "java": {"heading": "Java Developer", "emoji": "☕"},
     "dotnet": {"heading": ".NET Developer", "emoji": "🔷"},
 }
@@ -178,7 +179,7 @@ def build_html_body(jobs_by_domain: Dict[str, List[Dict[str, Any]]]) -> str:
             </div>
             <div class="content">
                 <div class="summary-box">
-                    <p><strong>🎯 Today's Summary:</strong> We identified <strong>{total_jobs}</strong> fresh, unique job leads across Cyber Security, Data, Java, and .NET matching 1-6 years of experience. A separate, formatted Excel sheet per domain is attached to this email.</p>
+                    <p><strong>🎯 Today's Summary:</strong> We identified <strong>{total_jobs}</strong> fresh, unique job leads across Cyber Security, Data Analyst, Data Engineer, Java, and .NET matching 1-6 years of experience. A separate, formatted Excel sheet per domain is attached to this email.</p>
                 </div>
 
                 {domain_sections}

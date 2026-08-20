@@ -20,7 +20,8 @@ import api from "@/lib/api";
 
 const DOMAIN_OPTIONS = [
   { value: "all", label: "All roles" },
-  { value: "data", label: "Data roles" },
+  { value: "data_analyst", label: "Data Analyst roles" },
+  { value: "data_engineer", label: "Data Engineer roles" },
   { value: "java", label: "Java roles" },
   { value: "dotnet", label: ".NET roles" },
   { value: "cyber", label: "Cyber roles" },

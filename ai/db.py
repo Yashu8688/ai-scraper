@@ -97,12 +97,13 @@ class Setting(Base):
     value = Column(Text, nullable=True)
 
 class DomainReport(Base):
-    """One row per domain (cyber/data/java/dotnet) per day, holding that day's generated
-    Excel report so the dashboard can resend the latest one for a domain on demand."""
+    """One row per domain (cyber/data_analyst/data_engineer/java/dotnet) per day, holding
+    that day's generated Excel report so the dashboard can resend the latest one for a
+    domain on demand."""
     __tablename__ = "domain_reports"
 
     id = Column(Integer, primary_key=True, index=True)
-    domain = Column(String(20), index=True, nullable=False)  # "cyber", "data", "java", "dotnet"
+    domain = Column(String(20), index=True, nullable=False)  # "cyber", "data_analyst", "data_engineer", "java", "dotnet"
     report_date = Column(Date, nullable=False)
     filename = Column(String(255), nullable=False)
     file_data = Column(LargeBinary, nullable=False)
