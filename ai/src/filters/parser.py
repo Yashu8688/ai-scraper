@@ -184,12 +184,15 @@ def classify_domain(title: str, description: str = "") -> str:
     Title is checked first, exactly as before — a job that already matches by title is
     classified identically to today, so this never changes existing behavior.
 
-    Java/.NET job titles are frequently generic ("Software Engineer", "Backend Engineer"),
-    with the actual language only mentioned in the description. So if the title doesn't
-    match any domain, java/dotnet keywords are also checked there as a fallback. Cyber/Data
-    are not re-checked against the description: those are already reliably identified by
-    title alone, and re-scanning the much longer, noisier description for them risks
-    unrelated false positives (e.g. a Java role that merely mentions "our data pipeline").
+    Java/.NET/Data-Engineer job titles are frequently generic ("Software Engineer", "Backend
+    Engineer", "Platform Engineer"), with the actual specialization only mentioned in the
+    description (e.g. a real data engineering role posted simply as "Software Engineer,
+    Data Platform" with Spark/Airflow/Snowflake/ETL work described in the body). So if the
+    title doesn't match any domain, java/dotnet/data_engineer keywords are also checked
+    there as a fallback. Cyber/data_analyst are not re-checked against the description:
+    those are more prone to unrelated false positives from a much longer, noisier
+    description (e.g. a role that merely mentions "our data pipeline" or "security" in
+    passing without being one of those roles).
     """
     title_lower = title.lower()
 
@@ -204,7 +207,7 @@ def classify_domain(title: str, description: str = "") -> str:
 
     if description:
         desc_lower = clean_html(description).lower()
-        for domain in ("java", "dotnet"):
+        for domain in ("data_engineer", "java", "dotnet"):
             for keyword in DOMAIN_KEYWORDS[domain]:
                 if re.search(keyword, desc_lower):
                     return domain
