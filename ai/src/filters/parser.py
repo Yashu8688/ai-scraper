@@ -31,6 +31,19 @@ DATA_ENGINEER_KEYWORDS = [
     r"\bairflow\b", r"\bbig\s*data\b",
 ]
 
+# Stricter subset of DATA_ENGINEER_KEYWORDS used only for the description-fallback
+# check in classify_domain (see there for why). Deliberately excludes bare tool-name
+# keywords (spark, airflow, snowflake, databricks, dbt, etl, elt, big data) since those
+# show up incidentally in Data Scientist / ML / analytics-adjacent job descriptions that
+# aren't data engineering roles — only phrases that describe the role itself qualify here.
+DATA_ENGINEER_DESC_FALLBACK_KEYWORDS = [
+    r"\bdata\s+engineer(ing)?\b", r"\bdata\s+\w+\s+engineer\b",
+    r"\betl\s+pipeline", r"\belt\s+pipeline",
+    r"\bdata\s+warehouse\b", r"\bdata\s+pipeline\b", r"\bdata\s+platform\b",
+    r"\banalytics\s+engineer\b",
+    r"\bbig\s*data\s+(?:engineer|pipeline|platform|infrastructure|systems)\b",
+]
+
 # Keywords that indicate a Java Developer role
 JAVA_KEYWORDS = [
     r"\bjava\s+developer\b", r"\bjava\s+engineer\b", r"\bsoftware\s+engineer.{0,20}\bjava\b",
@@ -79,6 +92,10 @@ EXCLUDE_TITLE_PATTERNS = [
     r"\badministrative\b",
     r"\bfellowship\b",
     r"\bskillbridge\b",
+    r"\bproduct\s+manager\b",
+    r"\bproduct\s+owner\b",
+    r"\bchemist(ry)?\b",
+    r"\bdata\s+scientist\b",
     # --- Seniority-level exclusions commented out per request: lead/senior/staff/principal/
     # director/VP/chief titled roles should now be allowed through rather than excluded
     # outright. Restore by uncommenting these lines.
@@ -187,12 +204,17 @@ def classify_domain(title: str, description: str = "") -> str:
     Java/.NET/Data-Engineer job titles are frequently generic ("Software Engineer", "Backend
     Engineer", "Platform Engineer"), with the actual specialization only mentioned in the
     description (e.g. a real data engineering role posted simply as "Software Engineer,
-    Data Platform" with Spark/Airflow/Snowflake/ETL work described in the body). So if the
-    title doesn't match any domain, java/dotnet/data_engineer keywords are also checked
-    there as a fallback. Cyber/data_analyst are not re-checked against the description:
-    those are more prone to unrelated false positives from a much longer, noisier
-    description (e.g. a role that merely mentions "our data pipeline" or "security" in
-    passing without being one of those roles).
+    Data Platform" with ETL/data-pipeline work described in the body). So if the title
+    doesn't match any domain, java/dotnet/data_engineer keywords are also checked there as
+    a fallback — data_engineer uses DATA_ENGINEER_DESC_FALLBACK_KEYWORDS rather than the
+    full DATA_ENGINEER_KEYWORDS list, since bare tool-name mentions (Spark, Airflow,
+    Snowflake, Databricks, dbt) show up incidentally in Data Scientist/ML/analytics job
+    descriptions without those being real data engineering roles — only phrases describing
+    the role itself (data pipeline, data warehouse, data platform, analytics engineer, ETL
+    pipeline) count for this fallback. Cyber/data_analyst are not re-checked against the
+    description at all: those are more prone to unrelated false positives from a much
+    longer, noisier description (e.g. a role that merely mentions "security" in passing
+    without being one of those roles).
     """
     title_lower = title.lower()
 
@@ -207,7 +229,10 @@ def classify_domain(title: str, description: str = "") -> str:
 
     if description:
         desc_lower = clean_html(description).lower()
-        for domain in ("data_engineer", "java", "dotnet"):
+        for keyword in DATA_ENGINEER_DESC_FALLBACK_KEYWORDS:
+            if re.search(keyword, desc_lower):
+                return "data_engineer"
+        for domain in ("java", "dotnet"):
             for keyword in DOMAIN_KEYWORDS[domain]:
                 if re.search(keyword, desc_lower):
                     return domain
