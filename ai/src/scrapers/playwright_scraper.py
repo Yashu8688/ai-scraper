@@ -18,7 +18,7 @@ _LDJSON_PATTERN = re.compile(r'<script[^>]+type=["\']application/ld\+json["\'][^
 _JOB_LINK_PATTERN = re.compile(
     r"(?:"
     r"^https?://jobs\."                                                    # jobs.* subdomain (SmartRecruiters, Personio, etc.)
-    r"|/(?:job|jobs|position|positions|req|opening|openings|vacancy|vacancies|o|j)/[^\"'#?]*[A-Za-z0-9_-]"  # path segment keyword
+    r"|/(?:job|jobs|position|positions|req|opening|openings|vacancy|vacancies|apply|o|j)/[^\"'#?]*[A-Za-z0-9_-]"  # path segment keyword ("apply" covers JazzHR/applytojob.com)
     r"|/\d{5,}[/-]"                                                         # numeric job ID in the path (common across many platforms)
     r")",
     re.I,
