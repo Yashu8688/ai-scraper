@@ -376,16 +376,13 @@ def get_resume_recipients(resume_id: int) -> List[str]:
     finally:
         db.close()
 
-def get_resume_sent_links(resume_id: int, retention_days: int) -> set:
-    """Returns every job link already sent to this resume within the retention window, so
-    the daily matcher can exclude them from today's candidates."""
+def get_resume_sent_links(resume_id: int) -> set:
+    """Returns every job link ever sent to this resume (no time window -- unlike the
+    retention-bounded domain-report dedup, a resume's matches must never repeat, so the
+    daily matcher excludes every link it has ever sent to this resume, permanently)."""
     db = SessionLocal()
     try:
-        cutoff = datetime.date.today() - datetime.timedelta(days=retention_days)
-        rows = db.query(ResumeSentJob.apply_link).filter(
-            ResumeSentJob.resume_id == resume_id,
-            ResumeSentJob.sent_date >= cutoff,
-        ).all()
+        rows = db.query(ResumeSentJob.apply_link).filter(ResumeSentJob.resume_id == resume_id).all()
         return {r[0] for r in rows}
     finally:
         db.close()
@@ -402,17 +399,6 @@ def record_resume_sent_jobs(resume_id: int, apply_links: List[str]) -> None:
             for link in apply_links
         ])
         db.commit()
-    finally:
-        db.close()
-
-def purge_expired_resume_sent_jobs(retention_days: int) -> int:
-    """Deletes ResumeSentJob rows older than retention_days. Returns rows deleted."""
-    db = SessionLocal()
-    try:
-        cutoff = datetime.date.today() - datetime.timedelta(days=retention_days)
-        count = db.query(ResumeSentJob).filter(ResumeSentJob.sent_date < cutoff).delete()
-        db.commit()
-        return count
     finally:
         db.close()
 
