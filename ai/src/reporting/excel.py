@@ -1,7 +1,7 @@
 import datetime
 import logging
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import pandas as pd
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -18,16 +18,20 @@ DOMAIN_REPORT_META = {
     "dotnet": {"prefix": "DotNetJobs", "sheet": ".NET Jobs", "title": ".NET DEVELOPER JOB LEADS (1-6 YRS EXP)", "emoji": "🔷"},
 }
 
-def generate_styled_excel(jobs: List[Dict[str, Any]], domain: str = "cyber") -> str:
+def generate_styled_excel(jobs: List[Dict[str, Any]], domain: str = "cyber", meta_override: Optional[Dict[str, str]] = None) -> str:
     """
     Generates a beautifully styled Excel file using pandas and openpyxl.
     Saves to history directory with naming <Prefix>_DDMMYYYY.xlsx (prefix depends on domain).
     If file is already open/locked, appends a counter suffix.
 
+    meta_override: when given (resume reports), used instead of looking up `domain` in
+    DOMAIN_REPORT_META -- lets a dynamically-named report (e.g. one per candidate) reuse this
+    same styling without needing a static DOMAIN_REPORT_META entry.
+
     Returns:
         str: Absolute path of the generated Excel file.
     """
-    meta = DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
+    meta = meta_override or DOMAIN_REPORT_META.get(domain, DOMAIN_REPORT_META["cyber"])
 
     # Create filename with current date: <Prefix>_DDMMYYYY.xlsx
     today_str = datetime.date.today().strftime("%d%m%Y")
@@ -48,9 +52,13 @@ def generate_styled_excel(jobs: List[Dict[str, Any]], domain: str = "cyber") -> 
     logger.info(f"Generating styled Excel at: {file_path}")
     
     # 1. Map jobs list to DataFrame
+    # Resume reports (see src/resume/matcher.py) attach match_reason/match_score to every job;
+    # domain reports never do, so this stays False and the output is unchanged for them.
+    has_match_columns = any("match_reason" in job for job in jobs)
+
     data = []
     for idx, job in enumerate(jobs, 1):
-        data.append({
+        row = {
             "S.No": idx,
             "Date Added": job.get("date_posted") or datetime.date.today().strftime("%Y-%m-%d"),
             "Company": job.get("company", ""),
@@ -58,8 +66,13 @@ def generate_styled_excel(jobs: List[Dict[str, Any]], domain: str = "cyber") -> 
             "Location": job.get("location", ""),
             "Experience Required": job.get("experience_metadata", "Not Specified"),
             "Apply Link": job.get("apply_link", "")
-        })
-        
+        }
+        if has_match_columns:
+            score = job.get("match_score")
+            row["Match %"] = f"{score}%" if score is not None else "N/A"
+            row["Why It Fits"] = job.get("match_reason", "")
+        data.append(row)
+
     df = pd.DataFrame(data)
     
     # Ensure folder exists

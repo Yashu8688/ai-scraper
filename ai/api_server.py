@@ -1,11 +1,12 @@
 import os
 import sys
 import io
+import json
 import datetime
 import pandas as pd
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, Query, BackgroundTasks, Response, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, EmailStr
@@ -17,13 +18,19 @@ import jwt
 current_dir = Path(__file__).resolve().parent
 sys.path.append(str(current_dir))
 
-from db import SessionLocal, User, Company, Job, ActivityLog, Setting, Recipient, DailyRecipient, get_db, hash_password, verify_password, init_db, get_latest_domain_report, get_daily_digest_recipients, get_domain_report_dates, get_domain_report_by_date
+from db import (
+    SessionLocal, User, Company, Job, ActivityLog, Setting, Recipient, DailyRecipient,
+    Resume, ResumeRecipient, ResumeReport, ResumeSentJob, get_db, hash_password, verify_password, init_db,
+    get_latest_domain_report, get_daily_digest_recipients, get_domain_report_dates, get_domain_report_by_date,
+    get_latest_resume_report,
+)
 from scrape_trigger import scrape_single_company
 from config import settings
 from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, WorkdayScraper
 from src.orchestrator import scrape_try_all, DOMAINS
 from src.reporting import send_domain_report_email
 from src.reporting.excel import DOMAIN_REPORT_META
+from src.resume import extract_text_from_resume, extract_profile_with_ai
 
 # Load environmental variables
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretjwtkey123!@#")
@@ -159,6 +166,34 @@ class DailyRecipientCreate(BaseModel):
 
 class DailyRecipientResponse(BaseModel):
     id: int
+    email: str
+    name: Optional[str]
+    created_at: datetime.datetime
+
+    class Config:
+        orm_mode = True
+
+class ResumeResponse(BaseModel):
+    id: int
+    candidate_name: str
+    original_filename: str
+    is_active: bool
+    created_at: datetime.datetime
+
+    class Config:
+        orm_mode = True
+
+class ResumeUpdate(BaseModel):
+    candidate_name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class ResumeRecipientCreate(BaseModel):
+    email: str
+    name: Optional[str] = None
+
+class ResumeRecipientResponse(BaseModel):
+    id: int
+    resume_id: int
     email: str
     name: Optional[str]
     created_at: datetime.datetime
@@ -1088,6 +1123,196 @@ def send_domain_report(
                    if recipient_emails else f"{meta['sheet']} report sent successfully.",
         "recipients": recipient_emails,
     }
+
+
+# 9. Resumes Endpoints — upload a candidate resume, manage its own recipient list, and
+# resend/download its latest daily matched-job report. Fully independent of the fixed-domain
+# reports above (see src/resume/ and the resume-matching step in src/orchestrator.py).
+@router.post("/resumes", response_model=ResumeResponse)
+def create_resume(
+    candidate_name: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    file_bytes = file.file.read()
+    try:
+        resume_text = extract_text_from_resume(file.filename or "", file_bytes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    profile = extract_profile_with_ai(resume_text)
+
+    resume = Resume(
+        candidate_name=candidate_name.strip() or profile.get("candidate_name", "Unknown Candidate"),
+        original_filename=file.filename or "resume",
+        resume_text=resume_text,
+        profile_json=json.dumps(profile),
+        is_active=True,
+    )
+    db.add(resume)
+    db.commit()
+    db.refresh(resume)
+
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="RESUME_ADD",
+        details=f"Uploaded resume for {resume.candidate_name} ({resume.original_filename})."
+    ))
+    db.commit()
+    return resume
+
+@router.get("/resumes", response_model=List[ResumeResponse])
+def list_resumes(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return db.query(Resume).order_by(Resume.created_at.desc()).all()
+
+@router.patch("/resumes/{id}", response_model=ResumeResponse)
+def update_resume(
+    id: int,
+    req: ResumeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    resume = db.query(Resume).filter(Resume.id == id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+
+    if req.candidate_name is not None:
+        resume.candidate_name = req.candidate_name.strip() or resume.candidate_name
+    if req.is_active is not None:
+        resume.is_active = req.is_active
+
+    db.commit()
+    db.refresh(resume)
+
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="RESUME_UPDATE",
+        details=f"Updated resume for {resume.candidate_name} (active={resume.is_active})."
+    ))
+    db.commit()
+    return resume
+
+@router.delete("/resumes/{id}")
+def delete_resume(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    resume = db.query(Resume).filter(Resume.id == id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+
+    candidate_name = resume.candidate_name
+    # Deleted explicitly rather than relying on the FK's ondelete="CASCADE": the SQLite dev
+    # fallback (db.py's DATABASE_URL default) never enables PRAGMA foreign_keys, so DB-level
+    # cascade silently does nothing there and would leave orphaned rows behind.
+    db.query(ResumeRecipient).filter(ResumeRecipient.resume_id == id).delete()
+    db.query(ResumeReport).filter(ResumeReport.resume_id == id).delete()
+    db.query(ResumeSentJob).filter(ResumeSentJob.resume_id == id).delete()
+    db.delete(resume)
+    db.commit()
+
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="RESUME_DELETE",
+        details=f"Deleted resume for {candidate_name}."
+    ))
+    db.commit()
+    return {"success": True, "message": f"Resume for {candidate_name} removed."}
+
+@router.get("/resumes/{id}/recipients", response_model=List[ResumeRecipientResponse])
+def list_resume_recipients(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if not db.query(Resume).filter(Resume.id == id).first():
+        raise HTTPException(status_code=404, detail="Resume not found.")
+    return db.query(ResumeRecipient).filter(ResumeRecipient.resume_id == id) \
+        .order_by(ResumeRecipient.name.asc(), ResumeRecipient.email.asc()).all()
+
+@router.post("/resumes/{id}/recipients", response_model=ResumeRecipientResponse)
+def create_resume_recipient(
+    id: int,
+    req: ResumeRecipientCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    import re
+    resume = db.query(Resume).filter(Resume.id == id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+
+    email = req.email.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if db.query(ResumeRecipient).filter(ResumeRecipient.resume_id == id, ResumeRecipient.email == email).first():
+        raise HTTPException(status_code=400, detail="This email address is already saved for this resume.")
+
+    recipient = ResumeRecipient(resume_id=id, email=email, name=(req.name or "").strip() or None)
+    db.add(recipient)
+    db.commit()
+    db.refresh(recipient)
+
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="RESUME_RECIPIENT_ADD",
+        details=f"Added recipient {email} to {resume.candidate_name}'s resume report."
+    ))
+    db.commit()
+    return recipient
+
+@router.delete("/resumes/{id}/recipients/{rid}")
+def delete_resume_recipient(
+    id: int,
+    rid: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    recipient = db.query(ResumeRecipient).filter(ResumeRecipient.id == rid, ResumeRecipient.resume_id == id).first()
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found.")
+
+    email = recipient.email
+    db.delete(recipient)
+    db.commit()
+
+    db.add(ActivityLog(
+        user_id=current_user.id,
+        action="RESUME_RECIPIENT_DELETE",
+        details=f"Removed recipient {email} from resume {id}'s report."
+    ))
+    db.commit()
+    return {"success": True, "message": f"{email} removed."}
+
+@router.get("/resumes/{id}/report/latest")
+def get_resume_report_status(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    resume = db.query(Resume).filter(Resume.id == id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+
+    report = get_latest_resume_report(id)
+    if not report:
+        return {"found": False, "resume_id": id, "candidate_name": resume.candidate_name}
+
+    return {
+        "found": True,
+        "resume_id": id,
+        "candidate_name": resume.candidate_name,
+        "report_date": report["report_date"],
+        "filename": report["filename"],
+        "job_count": report["job_count"],
+    }
+
+@router.get("/resumes/{id}/report/download")
+def download_resume_report(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Streams the raw stored .xlsx bytes for a resume's latest report."""
+    resume = db.query(Resume).filter(Resume.id == id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+
+    report = get_latest_resume_report(id)
+    if not report:
+        raise HTTPException(status_code=404, detail=f"No stored report found for {resume.candidate_name}.")
+
+    return Response(
+        content=report["file_data"],
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={report['filename']}"},
+    )
 
 
 # Mount Router

@@ -142,6 +142,61 @@ class DailyRecipient(Base):
     name = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+class Resume(Base):
+    """An uploaded candidate resume. Each active resume gets its own daily Excel report of
+    jobs ranked for fit against it (see src/resume/), sent only to its ResumeRecipients --
+    independent of the fixed-domain reports in DomainReport."""
+    __tablename__ = "resumes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    candidate_name = Column(String(255), nullable=False)
+    original_filename = Column(String(255), nullable=False)
+    resume_text = Column(Text, nullable=False)
+    # JSON-encoded {target_titles, core_skills, min_years, max_years, summary} extracted
+    # once by Claude at upload time (see src/resume/parser.py) -- never re-parsed daily.
+    profile_json = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class ResumeRecipient(Base):
+    """A saved email address that a specific resume's daily matched-job report is sent to.
+    Scoped per-resume so one candidate's recipients never see another's matches."""
+    __tablename__ = "resume_recipients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    resume_id = Column(Integer, ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False, index=True)
+    email = Column(String(255), nullable=False)
+    name = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("resume_id", "email", name="uq_resume_recipient_email"),)
+
+class ResumeReport(Base):
+    """One row per resume per day, holding that day's generated Excel report so the
+    dashboard can resend the latest one for a resume on demand -- mirrors DomainReport."""
+    __tablename__ = "resume_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    resume_id = Column(Integer, ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False, index=True)
+    report_date = Column(Date, nullable=False)
+    filename = Column(String(255), nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    job_count = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("resume_id", "report_date", name="uq_resume_report_date"),)
+
+class ResumeSentJob(Base):
+    """Tracks which job links have already been sent to a given resume, so the same job
+    isn't repeated in tomorrow's report. DB-based (unlike the file-based history dedup used
+    for the fixed domains) since resumes are dynamic rows, not a fixed list."""
+    __tablename__ = "resume_sent_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    resume_id = Column(Integer, ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False, index=True)
+    apply_link = Column(Text, nullable=False)
+    sent_date = Column(Date, nullable=False)
+
 # Database dependency
 def get_db():
     db = SessionLocal()
@@ -292,6 +347,120 @@ def get_daily_digest_recipients() -> List[str]:
         if setting and setting.value:
             return [e.strip() for e in setting.value.split(",") if e.strip()]
         return []
+    finally:
+        db.close()
+
+def get_active_resumes() -> List[Dict[str, Any]]:
+    """Returns every active Resume with its parsed profile, for the daily matching run."""
+    import json
+    db = SessionLocal()
+    try:
+        rows = db.query(Resume).filter(Resume.is_active == True).all()  # noqa: E712
+        return [
+            {
+                "id": r.id,
+                "candidate_name": r.candidate_name,
+                "profile": json.loads(r.profile_json),
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+def get_resume_recipients(resume_id: int) -> List[str]:
+    """Returns the email addresses a specific resume's report should be sent to."""
+    db = SessionLocal()
+    try:
+        rows = db.query(ResumeRecipient).filter(ResumeRecipient.resume_id == resume_id).all()
+        return [r.email for r in rows]
+    finally:
+        db.close()
+
+def get_resume_sent_links(resume_id: int, retention_days: int) -> set:
+    """Returns every job link already sent to this resume within the retention window, so
+    the daily matcher can exclude them from today's candidates."""
+    db = SessionLocal()
+    try:
+        cutoff = datetime.date.today() - datetime.timedelta(days=retention_days)
+        rows = db.query(ResumeSentJob.apply_link).filter(
+            ResumeSentJob.resume_id == resume_id,
+            ResumeSentJob.sent_date >= cutoff,
+        ).all()
+        return {r[0] for r in rows}
+    finally:
+        db.close()
+
+def record_resume_sent_jobs(resume_id: int, apply_links: List[str]) -> None:
+    """Marks the given job links as sent to this resume today, for future dedup."""
+    if not apply_links:
+        return
+    db = SessionLocal()
+    try:
+        today = datetime.date.today()
+        db.bulk_save_objects([
+            ResumeSentJob(resume_id=resume_id, apply_link=link, sent_date=today)
+            for link in apply_links
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+def purge_expired_resume_sent_jobs(retention_days: int) -> int:
+    """Deletes ResumeSentJob rows older than retention_days. Returns rows deleted."""
+    db = SessionLocal()
+    try:
+        cutoff = datetime.date.today() - datetime.timedelta(days=retention_days)
+        count = db.query(ResumeSentJob).filter(ResumeSentJob.sent_date < cutoff).delete()
+        db.commit()
+        return count
+    finally:
+        db.close()
+
+def save_resume_report(
+    resume_id: int,
+    report_date: datetime.date,
+    filename: str,
+    file_bytes: bytes,
+    job_count: Optional[int] = None,
+) -> None:
+    """Upserts a resume's report for a single day (one row per resume per day)."""
+    db = SessionLocal()
+    try:
+        existing = db.query(ResumeReport).filter(
+            ResumeReport.resume_id == resume_id,
+            ResumeReport.report_date == report_date,
+        ).first()
+        if existing:
+            existing.filename = filename
+            existing.file_data = file_bytes
+            existing.job_count = job_count
+        else:
+            db.add(ResumeReport(
+                resume_id=resume_id,
+                report_date=report_date,
+                filename=filename,
+                file_data=file_bytes,
+                job_count=job_count,
+            ))
+        db.commit()
+    finally:
+        db.close()
+
+def get_latest_resume_report(resume_id: int) -> Optional[Dict[str, Any]]:
+    """Returns the most recently stored report for a resume, or None if none exists."""
+    db = SessionLocal()
+    try:
+        row = db.query(ResumeReport).filter(ResumeReport.resume_id == resume_id) \
+            .order_by(ResumeReport.report_date.desc(), ResumeReport.id.desc()).first()
+        if not row:
+            return None
+        return {
+            "resume_id": row.resume_id,
+            "report_date": row.report_date,
+            "filename": row.filename,
+            "file_data": row.file_data,
+            "job_count": row.job_count,
+        }
     finally:
         db.close()
 

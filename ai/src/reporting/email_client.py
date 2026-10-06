@@ -414,3 +414,39 @@ def send_domain_report_email(domain: str, file_bytes: bytes, recipients: List[st
     except Exception as e:
         logger.error(f"[{domain}] Failed to send on-demand report email: {str(e)}", exc_info=True)
         return False
+
+def send_resume_report_email(resume_id: int, candidate_name: str, file_bytes: bytes, recipients: List[str]) -> bool:
+    """
+    Sends a resume's daily matched-job report to that resume's own recipient list only.
+
+    Unlike send_domain_report_email, there is no digest-recipient fallback -- a resume with
+    no recipients configured is simply a no-op (callers should check recipients before
+    calling, but this also guards against it directly).
+
+    Reuses the same SendGrid -> Resend -> SMTP provider chain and private send helpers as
+    domain reports (they only take `meta`/`recipients` as plain parameters, not a static
+    domain lookup, so they work as-is for a dynamically-named resume report).
+    """
+    log_label = f"resume:{resume_id}"
+    recipients = [e.strip() for e in (recipients or []) if e and e.strip()]
+    if not recipients:
+        logger.warning(f"[{log_label}] No recipients configured for this resume. Email skipped.")
+        return False
+
+    meta = {
+        "sheet": f"Job Leads for {candidate_name}",
+        "title": f"CURATED JOB LEADS FOR {candidate_name.upper()}",
+        "emoji": "🎯",
+    }
+    html_body = _build_domain_report_html(meta)
+    attachment_filename = f"ResumeMatches_{candidate_name.replace(' ', '')}.xlsx"
+
+    try:
+        if settings.SENDGRID_API_KEY:
+            return _send_domain_report_via_sendgrid(log_label, meta, recipients, html_body, file_bytes, attachment_filename)
+        if settings.RESEND_API_KEY:
+            return _send_domain_report_via_resend(log_label, meta, recipients, html_body, file_bytes, attachment_filename)
+        return _send_domain_report_via_smtp(log_label, meta, recipients, html_body, file_bytes, attachment_filename)
+    except Exception as e:
+        logger.error(f"[{log_label}] Failed to send resume report email: {str(e)}", exc_info=True)
+        return False
