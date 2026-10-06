@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 from config import settings
 from db import (
     save_domain_report, get_active_resumes, get_resume_recipients, get_resume_sent_links,
-    record_resume_sent_jobs, purge_expired_resume_sent_jobs, save_resume_report,
+    record_resume_sent_jobs, save_resume_report,
 )
 from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, WorkdayScraper, PlaywrightScraper
 from src.filters import filter_job, filter_job_for_resume, verify_job_with_ai
@@ -26,6 +26,12 @@ DOMAINS = ["cyber", "data_analyst", "data_engineer", "java", "dotnet"]
 # (see the top-up step in run_pipeline) rather than shipping a thin report.
 MIN_JOBS_PER_SHEET = 30
 MAX_JOBS_PER_SHEET = 40
+
+# Target size of a resume's daily matched-job report -- separate from the domain sheets
+# above since resume reports are a different, per-candidate product. Jobs already sent to a
+# given resume are never reused (see get_resume_sent_links), so these 25 are guaranteed
+# unique day over day for as long as new matching jobs keep appearing in the scrape.
+RESUME_REPORT_TOP_N = 25
 
 def rate_job_relevance(job: Dict[str, Any]) -> int:
     """
@@ -214,7 +220,6 @@ def run_pipeline() -> bool:
         active_resumes = get_active_resumes()
         if active_resumes:
             logger.info(f"Resume matching: {len(active_resumes)} active resume(s) to process.")
-            purge_expired_resume_sent_jobs(retention_days)
 
         for resume in active_resumes:
             resume_id = resume["id"]
@@ -224,7 +229,9 @@ def run_pipeline() -> bool:
             max_years = profile.get("max_years", 6)
 
             try:
-                already_sent = get_resume_sent_links(resume_id, retention_days)
+                # Permanent dedup -- every link ever sent to this resume, not just a recent
+                # window -- so today's RESUME_REPORT_TOP_N are guaranteed never repeated.
+                already_sent = get_resume_sent_links(resume_id)
                 candidates = []
                 for job in raw_jobs:
                     is_match, _, enriched_job = filter_job_for_resume(job, min_years, max_years)
@@ -236,7 +243,7 @@ def run_pipeline() -> bool:
 
                 logger.info(f"[resume:{resume_id}] {len(candidates)} candidate jobs after USA/experience filter + dedup.")
 
-                ranked = rank_jobs_for_resume(profile, candidates, top_n=MAX_JOBS_PER_SHEET)
+                ranked = rank_jobs_for_resume(profile, candidates, top_n=RESUME_REPORT_TOP_N)
                 if not ranked:
                     logger.info(f"[resume:{resume_id}] No matching jobs today for {candidate_name}.")
                     continue
