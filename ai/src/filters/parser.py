@@ -239,16 +239,17 @@ def classify_domain(title: str, description: str = "") -> str:
 
     return None
 
-def parse_experience(description: str, title: str = "") -> Tuple[bool, str]:
+def parse_experience(description: str, title: str = "", min_years: int = None, max_years: int = None) -> Tuple[bool, str]:
     """
     Parses experience required from the job description.
     Returns:
         Tuple[bool, str]: (is_within_range, extracted_experience_string)
-        
-    Range: Dynamic based on settings.
+
+    Range: min_years/max_years when given (e.g. a specific resume's own experience level),
+    otherwise the global settings.EXPERIENCE_MIN_YEARS/MAX_YEARS used for domain reports.
     """
-    min_exp_limit = settings.EXPERIENCE_MIN_YEARS
-    max_exp_limit = settings.EXPERIENCE_MAX_YEARS
+    min_exp_limit = min_years if min_years is not None else settings.EXPERIENCE_MIN_YEARS
+    max_exp_limit = max_years if max_years is not None else settings.EXPERIENCE_MAX_YEARS
     title_lower = title.lower()
     desc_clean = clean_html(description)
     desc_lower = desc_clean.lower()
@@ -347,5 +348,29 @@ def filter_job(job: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
     enriched_job = job.copy()
     enriched_job["experience_metadata"] = exp_reason
     enriched_job["domain"] = domain
+
+    return True, "Matches criteria", enriched_job
+
+def filter_job_for_resume(job: Dict[str, Any], min_years: int, max_years: int) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Lighter version of filter_job used for resume matching: still requires a USA location
+    and an experience match, but deliberately skips classify_domain -- a resume can target a
+    role outside the 5 tracked domains (e.g. Product Manager), and classify_domain returning
+    None for those would otherwise wrongly reject them. Experience is checked against the
+    resume's own min_years/max_years rather than the global settings range.
+    """
+    title = job.get("title", "")
+    location = job.get("location", "")
+    description = job.get("description", "")
+
+    if not is_usa_location(location, description):
+        return False, "Not in USA", job
+
+    is_exp_match, exp_reason = parse_experience(description, title, min_years, max_years)
+    if not is_exp_match:
+        return False, f"Experience out of range: {exp_reason}", job
+
+    enriched_job = job.copy()
+    enriched_job["experience_metadata"] = exp_reason
 
     return True, "Matches criteria", enriched_job

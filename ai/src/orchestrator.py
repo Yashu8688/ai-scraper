@@ -4,11 +4,15 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any
 from config import settings
-from db import save_domain_report
+from db import (
+    save_domain_report, get_active_resumes, get_resume_recipients, get_resume_sent_links,
+    record_resume_sent_jobs, purge_expired_resume_sent_jobs, save_resume_report,
+)
 from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, WorkdayScraper, PlaywrightScraper
-from src.filters import filter_job, verify_job_with_ai
+from src.filters import filter_job, filter_job_for_resume, verify_job_with_ai
 from src.storage import load_history_signatures, is_duplicate_job, purge_expired_history
-from src.reporting import generate_styled_excel, send_email_with_report
+from src.reporting import generate_styled_excel, send_email_with_report, send_resume_report_email
+from src.resume import rank_jobs_for_resume
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +202,74 @@ def run_pipeline() -> bool:
             f"Add a greenhouse/lever/ashby token via the dashboard to include them. "
             f"First 10: {skipped_companies[:10]}"
         )
+
+    # 3b. Resume-based matching: an independent channel on top of the fixed-domain pipeline
+    # below. Runs against the same raw_jobs just scraped (no extra scraping cost), matched
+    # against the full pool (not just the 5 tracked domains) using each resume's own
+    # experience range instead of the global EXPERIENCE_MIN/MAX_YEARS. The whole step is
+    # wrapped in its own top-level try/except, and each resume in its own inner try/except,
+    # so a failure here (bad resume profile, Claude error, one resume's email failing) can
+    # never affect the domain reports generated further down, nor one resume affect another.
+    try:
+        active_resumes = get_active_resumes()
+        if active_resumes:
+            logger.info(f"Resume matching: {len(active_resumes)} active resume(s) to process.")
+            purge_expired_resume_sent_jobs(retention_days)
+
+        for resume in active_resumes:
+            resume_id = resume["id"]
+            candidate_name = resume["candidate_name"]
+            profile = resume["profile"]
+            min_years = profile.get("min_years", 1)
+            max_years = profile.get("max_years", 6)
+
+            try:
+                already_sent = get_resume_sent_links(resume_id, retention_days)
+                candidates = []
+                for job in raw_jobs:
+                    is_match, _, enriched_job = filter_job_for_resume(job, min_years, max_years)
+                    if not is_match:
+                        continue
+                    if enriched_job.get("apply_link") in already_sent:
+                        continue
+                    candidates.append(enriched_job)
+
+                logger.info(f"[resume:{resume_id}] {len(candidates)} candidate jobs after USA/experience filter + dedup.")
+
+                ranked = rank_jobs_for_resume(profile, candidates, top_n=MAX_JOBS_PER_SHEET)
+                if not ranked:
+                    logger.info(f"[resume:{resume_id}] No matching jobs today for {candidate_name}.")
+                    continue
+
+                meta_override = {
+                    "prefix": f"Resume_{resume_id}",
+                    "sheet": f"{candidate_name} Matches",
+                    "title": f"JOB LEADS FOR {candidate_name.upper()}",
+                    "emoji": "🎯",
+                }
+                excel_path = generate_styled_excel(ranked, meta_override=meta_override)
+                file_bytes = Path(excel_path).read_bytes()
+
+                save_resume_report(
+                    resume_id=resume_id,
+                    report_date=datetime.date.today(),
+                    filename=Path(excel_path).name,
+                    file_bytes=file_bytes,
+                    job_count=len(ranked),
+                )
+                record_resume_sent_jobs(resume_id, [j.get("apply_link") for j in ranked if j.get("apply_link")])
+
+                recipients = get_resume_recipients(resume_id)
+                if recipients:
+                    send_resume_report_email(resume_id, candidate_name, file_bytes, recipients)
+                else:
+                    logger.warning(f"[resume:{resume_id}] No recipients configured for {candidate_name} -- report saved but not emailed.")
+
+            except Exception as e:
+                logger.error(f"[resume:{resume_id}] Resume matching failed for {candidate_name}: {str(e)}", exc_info=True)
+                continue
+    except Exception as e:
+        logger.error(f"Resume matching step failed entirely (domain pipeline unaffected): {str(e)}", exc_info=True)
 
     # 4. Regex Filter: classifies each job into a domain (cyber/data/java/dotnet), applies
     # per-domain dedup + USA + experience checks.
