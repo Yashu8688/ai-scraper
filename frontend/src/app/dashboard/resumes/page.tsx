@@ -29,6 +29,20 @@ type Resume = {
 
 type ResumeRecipient = { id: number; resume_id: number; email: string; name: string | null };
 
+// FastAPI's `detail` is a plain string for a raised HTTPException, but for a request
+// validation failure (422, before the endpoint even runs) it's an array of
+// {type, loc, msg, input} objects instead -- rendering that array directly as JSX throws
+// (React error #31, "objects are not valid as a child"), so always reduce it to a string.
+function extractErrorMessage(err: any, fallback: string): string {
+  const detail = err?.response?.data?.detail;
+  if (!detail) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => (typeof d === "string" ? d : d?.msg || JSON.stringify(d))).join("; ");
+  }
+  return fallback;
+}
+
 function ResumeRecipients({ resumeId }: { resumeId: number }) {
   const queryClient = useQueryClient();
   const [newEmail, setNewEmail] = useState("");
@@ -58,7 +72,7 @@ function ResumeRecipients({ resumeId }: { resumeId: number }) {
       queryClient.invalidateQueries({ queryKey: ["resumeRecipients", resumeId] });
     },
     onError: (err: any) => {
-      setError(err.response?.data?.detail || "Could not add this email.");
+      setError(extractErrorMessage(err, "Could not add this email."));
     },
   });
 
@@ -210,7 +224,14 @@ export default function ResumesPage() {
       const formData = new FormData();
       formData.append("candidate_name", candidateName.trim());
       formData.append("file", file as File);
-      const response = await api.post("/resumes", formData);
+      // api's instance default is Content-Type: application/json -- axios checks that
+      // header BEFORE its own FormData handling runs, and JSON-stringifies the FormData
+      // instead of sending it as multipart when it sees "application/json" already set.
+      // Overriding it here (no boundary given) lets axios/the browser fill in the correct
+      // multipart boundary instead.
+      const response = await api.post("/resumes", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       return response.data;
     },
     onSuccess: (created: Resume) => {
@@ -219,7 +240,7 @@ export default function ResumesPage() {
       closeUploadModal();
     },
     onError: (err: any) => {
-      setFormError(err.response?.data?.detail || "Failed to upload resume.");
+      setFormError(extractErrorMessage(err, "Failed to upload resume."));
     },
   });
 
