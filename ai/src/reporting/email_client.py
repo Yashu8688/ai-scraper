@@ -423,9 +423,14 @@ def send_resume_report_email(resume_id: int, candidate_name: str, file_bytes: by
     no recipients configured is simply a no-op (callers should check recipients before
     calling, but this also guards against it directly).
 
-    Reuses the same SendGrid -> Resend -> SMTP provider chain and private send helpers as
-    domain reports (they only take `meta`/`recipients` as plain parameters, not a static
-    domain lookup, so they work as-is for a dynamically-named resume report).
+    Reuses the same send helpers as domain reports (they only take `meta`/`recipients` as
+    plain parameters, not a static domain lookup, so they work as-is for a dynamically-named
+    resume report), but -- unlike send_domain_report_email, which stops at the first
+    configured provider -- falls through to the next provider if one fails (e.g. a SendGrid
+    plan hitting its send-credit limit), since this runs unattended on a schedule with nobody
+    to notice and retry a failed send. SMTP is tried last regardless of whether it's
+    "configured" since it only needs settings.SMTP_USER/PASSWORD, which the daily digest
+    already relies on successfully.
     """
     log_label = f"resume:{resume_id}"
     recipients = [e.strip() for e in (recipients or []) if e and e.strip()]
@@ -441,12 +446,20 @@ def send_resume_report_email(resume_id: int, candidate_name: str, file_bytes: by
     html_body = _build_domain_report_html(meta)
     attachment_filename = f"ResumeMatches_{candidate_name.replace(' ', '')}.xlsx"
 
-    try:
-        if settings.SENDGRID_API_KEY:
-            return _send_domain_report_via_sendgrid(log_label, meta, recipients, html_body, file_bytes, attachment_filename)
-        if settings.RESEND_API_KEY:
-            return _send_domain_report_via_resend(log_label, meta, recipients, html_body, file_bytes, attachment_filename)
-        return _send_domain_report_via_smtp(log_label, meta, recipients, html_body, file_bytes, attachment_filename)
-    except Exception as e:
-        logger.error(f"[{log_label}] Failed to send resume report email: {str(e)}", exc_info=True)
-        return False
+    providers = []
+    if settings.SENDGRID_API_KEY:
+        providers.append(("SendGrid", _send_domain_report_via_sendgrid))
+    if settings.RESEND_API_KEY:
+        providers.append(("Resend", _send_domain_report_via_resend))
+    providers.append(("SMTP", _send_domain_report_via_smtp))
+
+    for name, send_fn in providers:
+        try:
+            if send_fn(log_label, meta, recipients, html_body, file_bytes, attachment_filename):
+                return True
+            logger.warning(f"[{log_label}] {name} failed to send the resume report, trying the next provider...")
+        except Exception as e:
+            logger.error(f"[{log_label}] {name} raised while sending the resume report: {str(e)}", exc_info=True)
+
+    logger.error(f"[{log_label}] All email providers failed -- resume report was not sent.")
+    return False
