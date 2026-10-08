@@ -178,6 +178,7 @@ class ResumeResponse(BaseModel):
     candidate_name: str
     original_filename: str
     is_active: bool
+    include_weekends: bool
     created_at: datetime.datetime
 
     class Config:
@@ -186,6 +187,7 @@ class ResumeResponse(BaseModel):
 class ResumeUpdate(BaseModel):
     candidate_name: Optional[str] = None
     is_active: Optional[bool] = None
+    include_weekends: Optional[bool] = None
 
 class ResumeRecipientCreate(BaseModel):
     email: str
@@ -1181,6 +1183,8 @@ def update_resume(
         resume.candidate_name = req.candidate_name.strip() or resume.candidate_name
     if req.is_active is not None:
         resume.is_active = req.is_active
+    if req.include_weekends is not None:
+        resume.include_weekends = req.include_weekends
 
     db.commit()
     db.refresh(resume)

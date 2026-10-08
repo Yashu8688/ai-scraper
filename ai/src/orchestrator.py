@@ -221,12 +221,21 @@ def run_pipeline() -> bool:
         if active_resumes:
             logger.info(f"Resume matching: {len(active_resumes)} active resume(s) to process.")
 
+        is_weekend_today = datetime.date.today().weekday() >= 5  # 5=Saturday, 6=Sunday
+
         for resume in active_resumes:
             resume_id = resume["id"]
             candidate_name = resume["candidate_name"]
             profile = resume["profile"]
             min_years = profile.get("min_years", 1)
             max_years = profile.get("max_years", 6)
+
+            if is_weekend_today and not resume.get("include_weekends"):
+                # Skip entirely -- no candidates pulled, nothing recorded as sent -- so any
+                # job that only shows up over the weekend stays available for this resume's
+                # next weekday run instead of being wasted on a day nobody's applying.
+                logger.info(f"[resume:{resume_id}] Skipping weekend run for {candidate_name} (include_weekends is off).")
+                continue
 
             try:
                 # Permanent dedup -- every link ever sent to this resume, not just a recent

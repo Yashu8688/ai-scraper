@@ -14,6 +14,7 @@ import {
   Users,
   Power,
   CalendarClock,
+  CalendarOff,
   ListChecks,
   Download,
 } from "lucide-react";
@@ -24,6 +25,7 @@ type Resume = {
   candidate_name: string;
   original_filename: string;
   is_active: boolean;
+  include_weekends: boolean;
   created_at: string;
 };
 
@@ -254,6 +256,16 @@ export default function ResumesPage() {
     },
   });
 
+  const toggleWeekendsMutation = useMutation({
+    mutationFn: async ({ id, include_weekends }: { id: number; include_weekends: boolean }) => {
+      const response = await api.patch(`/resumes/${id}`, { include_weekends });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["resumes"] });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       const response = await api.delete(`/resumes/${id}`);
@@ -330,6 +342,9 @@ export default function ResumesPage() {
                       <span className={`badge ${resume.is_active ? "badge-green" : "badge-neutral"}`}>
                         {resume.is_active ? "Active" : "Paused"}
                       </span>
+                      <span className="badge badge-neutral">
+                        {resume.include_weekends ? "Runs Sat/Sun" : "Skips Sat/Sun"}
+                      </span>
                     </div>
                     <p className="text-[11px] text-[#5B5F4A] truncate">{resume.original_filename}</p>
                     <div className="mt-2">
@@ -349,6 +364,22 @@ export default function ResumesPage() {
                       }`}
                     >
                       <Power className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleWeekendsMutation.mutate({ id: resume.id, include_weekends: !resume.include_weekends })}
+                      title={
+                        resume.include_weekends
+                          ? "Currently matching/emailing on Sat/Sun too -- click to skip weekends instead"
+                          : "Currently skipping Sat/Sun (jobs stay unused, not marked sent) -- click to include weekends"
+                      }
+                      className={`rounded-lg p-1.5 transition ${
+                        resume.include_weekends
+                          ? "text-[#2F6F5E] hover:bg-[#2F6F5E]/10"
+                          : "text-[#5B5F4A] hover:bg-[#FFF9F0]"
+                      }`}
+                    >
+                      <CalendarOff className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
