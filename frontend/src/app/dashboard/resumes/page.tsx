@@ -14,6 +14,7 @@ import {
   Users,
   Power,
   CalendarClock,
+  CalendarOff,
   ListChecks,
   Download,
 } from "lucide-react";
@@ -24,10 +25,25 @@ type Resume = {
   candidate_name: string;
   original_filename: string;
   is_active: boolean;
+  include_weekends: boolean;
   created_at: string;
 };
 
 type ResumeRecipient = { id: number; resume_id: number; email: string; name: string | null };
+
+// FastAPI's `detail` is a plain string for a raised HTTPException, but for a request
+// validation failure (422, before the endpoint even runs) it's an array of
+// {type, loc, msg, input} objects instead -- rendering that array directly as JSX throws
+// (React error #31, "objects are not valid as a child"), so always reduce it to a string.
+function extractErrorMessage(err: any, fallback: string): string {
+  const detail = err?.response?.data?.detail;
+  if (!detail) return fallback;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d) => (typeof d === "string" ? d : d?.msg || JSON.stringify(d))).join("; ");
+  }
+  return fallback;
+}
 
 function ResumeRecipients({ resumeId }: { resumeId: number }) {
   const queryClient = useQueryClient();
@@ -58,7 +74,7 @@ function ResumeRecipients({ resumeId }: { resumeId: number }) {
       queryClient.invalidateQueries({ queryKey: ["resumeRecipients", resumeId] });
     },
     onError: (err: any) => {
-      setError(err.response?.data?.detail || "Could not add this email.");
+      setError(extractErrorMessage(err, "Could not add this email."));
     },
   });
 
@@ -210,7 +226,14 @@ export default function ResumesPage() {
       const formData = new FormData();
       formData.append("candidate_name", candidateName.trim());
       formData.append("file", file as File);
-      const response = await api.post("/resumes", formData);
+      // api's instance default is Content-Type: application/json -- axios checks that
+      // header BEFORE its own FormData handling runs, and JSON-stringifies the FormData
+      // instead of sending it as multipart when it sees "application/json" already set.
+      // Overriding it here (no boundary given) lets axios/the browser fill in the correct
+      // multipart boundary instead.
+      const response = await api.post("/resumes", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       return response.data;
     },
     onSuccess: (created: Resume) => {
@@ -219,13 +242,23 @@ export default function ResumesPage() {
       closeUploadModal();
     },
     onError: (err: any) => {
-      setFormError(err.response?.data?.detail || "Failed to upload resume.");
+      setFormError(extractErrorMessage(err, "Failed to upload resume."));
     },
   });
 
   const toggleActiveMutation = useMutation({
     mutationFn: async ({ id, is_active }: { id: number; is_active: boolean }) => {
       const response = await api.patch(`/resumes/${id}`, { is_active });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["resumes"] });
+    },
+  });
+
+  const toggleWeekendsMutation = useMutation({
+    mutationFn: async ({ id, include_weekends }: { id: number; include_weekends: boolean }) => {
+      const response = await api.patch(`/resumes/${id}`, { include_weekends });
       return response.data;
     },
     onSuccess: () => {
@@ -309,6 +342,9 @@ export default function ResumesPage() {
                       <span className={`badge ${resume.is_active ? "badge-green" : "badge-neutral"}`}>
                         {resume.is_active ? "Active" : "Paused"}
                       </span>
+                      <span className="badge badge-neutral">
+                        {resume.include_weekends ? "Runs Sat/Sun" : "Skips Sat/Sun"}
+                      </span>
                     </div>
                     <p className="text-[11px] text-[#5B5F4A] truncate">{resume.original_filename}</p>
                     <div className="mt-2">
@@ -328,6 +364,22 @@ export default function ResumesPage() {
                       }`}
                     >
                       <Power className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleWeekendsMutation.mutate({ id: resume.id, include_weekends: !resume.include_weekends })}
+                      title={
+                        resume.include_weekends
+                          ? "Currently matching/emailing on Sat/Sun too -- click to skip weekends instead"
+                          : "Currently skipping Sat/Sun (jobs stay unused, not marked sent) -- click to include weekends"
+                      }
+                      className={`rounded-lg p-1.5 transition ${
+                        resume.include_weekends
+                          ? "text-[#2F6F5E] hover:bg-[#2F6F5E]/10"
+                          : "text-[#5B5F4A] hover:bg-[#FFF9F0]"
+                      }`}
+                    >
+                      <CalendarOff className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"

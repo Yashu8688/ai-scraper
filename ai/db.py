@@ -156,6 +156,12 @@ class Resume(Base):
     # once by Claude at upload time (see src/resume/parser.py) -- never re-parsed daily.
     profile_json = Column(Text, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    # Candidates typically aren't applying on weekends -- skipping Sat/Sun by default means
+    # a job that shows up over the weekend isn't permanently marked "sent" to this resume
+    # (see get_resume_sent_links) before the candidate could ever act on it, so it's saved
+    # for the next weekday run instead of being wasted. Opt in per-resume if that's wrong
+    # for a given candidate.
+    include_weekends = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class ResumeRecipient(Base):
@@ -223,6 +229,16 @@ def _run_migrations():
                 ))
                 conn.commit()
             print("[DB INIT] Migrated: added recipients.admin_only")
+
+    if "resumes" in inspector.get_table_names():
+        existing_cols = {c["name"] for c in inspector.get_columns("resumes")}
+        if "include_weekends" not in existing_cols:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE resumes ADD COLUMN include_weekends BOOLEAN NOT NULL DEFAULT FALSE"
+                ))
+                conn.commit()
+            print("[DB INIT] Migrated: added resumes.include_weekends")
 
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -361,6 +377,7 @@ def get_active_resumes() -> List[Dict[str, Any]]:
                 "id": r.id,
                 "candidate_name": r.candidate_name,
                 "profile": json.loads(r.profile_json),
+                "include_weekends": r.include_weekends,
             }
             for r in rows
         ]
