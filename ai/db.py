@@ -193,14 +193,21 @@ class ResumeReport(Base):
     __table_args__ = (UniqueConstraint("resume_id", "report_date", name="uq_resume_report_date"),)
 
 class ResumeSentJob(Base):
-    """Tracks which job links have already been sent to a given resume, so the same job
-    isn't repeated in tomorrow's report. DB-based (unlike the file-based history dedup used
-    for the fixed domains) since resumes are dynamic rows, not a fixed list."""
+    """Tracks which jobs have already been sent to a given resume, so the same job isn't
+    repeated in a future report. DB-based (unlike the file-based history dedup used for the
+    fixed domains) since resumes are dynamic rows, not a fixed list.
+
+    Matched two ways: exact apply_link, and a looser company+normalized-title signature (see
+    src/storage/history.job_signature) that still catches it when a company re-posts the same
+    role under a new URL and/or a lightly reworded title (e.g. adding "II", "(Remote)") --
+    an exact-link-only check would treat that as a brand new job.
+    """
     __tablename__ = "resume_sent_jobs"
 
     id = Column(Integer, primary_key=True, index=True)
     resume_id = Column(Integer, ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False, index=True)
     apply_link = Column(Text, nullable=False)
+    job_signature = Column(Text, nullable=True, index=True)
     sent_date = Column(Date, nullable=False)
 
 # Database dependency
@@ -239,6 +246,16 @@ def _run_migrations():
                 ))
                 conn.commit()
             print("[DB INIT] Migrated: added resumes.include_weekends")
+
+    if "resume_sent_jobs" in inspector.get_table_names():
+        existing_cols = {c["name"] for c in inspector.get_columns("resume_sent_jobs")}
+        if "job_signature" not in existing_cols:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE resume_sent_jobs ADD COLUMN job_signature TEXT"
+                ))
+                conn.commit()
+            print("[DB INIT] Migrated: added resume_sent_jobs.job_signature")
 
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -393,27 +410,41 @@ def get_resume_recipients(resume_id: int) -> List[str]:
     finally:
         db.close()
 
-def get_resume_sent_links(resume_id: int) -> set:
-    """Returns every job link ever sent to this resume (no time window -- unlike the
-    retention-bounded domain-report dedup, a resume's matches must never repeat, so the
-    daily matcher excludes every link it has ever sent to this resume, permanently)."""
+def get_resume_sent_identity(resume_id: int) -> tuple:
+    """
+    Returns (links, signatures) ever sent to this resume -- no time window, since a resume's
+    matches must never repeat, permanently. Two separate sets since a job is excluded if it
+    matches EITHER one: the exact apply_link, or the looser company+normalized-title
+    signature that still catches a company re-posting the same role under a new URL and/or a
+    lightly reworded title (see src/storage/history.job_signature).
+    """
     db = SessionLocal()
     try:
-        rows = db.query(ResumeSentJob.apply_link).filter(ResumeSentJob.resume_id == resume_id).all()
-        return {r[0] for r in rows}
+        rows = db.query(ResumeSentJob.apply_link, ResumeSentJob.job_signature).filter(
+            ResumeSentJob.resume_id == resume_id
+        ).all()
+        links = {r[0] for r in rows}
+        signatures = {r[1] for r in rows if r[1]}
+        return links, signatures
     finally:
         db.close()
 
-def record_resume_sent_jobs(resume_id: int, apply_links: List[str]) -> None:
-    """Marks the given job links as sent to this resume today, for future dedup."""
-    if not apply_links:
+def record_resume_sent_jobs(resume_id: int, jobs: List[Dict[str, Any]]) -> None:
+    """Marks the given jobs (each needs apply_link + job_signature) as sent to this resume
+    today, for future dedup by either identity."""
+    if not jobs:
         return
     db = SessionLocal()
     try:
         today = datetime.date.today()
         db.bulk_save_objects([
-            ResumeSentJob(resume_id=resume_id, apply_link=link, sent_date=today)
-            for link in apply_links
+            ResumeSentJob(
+                resume_id=resume_id,
+                apply_link=job["apply_link"],
+                job_signature=job.get("job_signature"),
+                sent_date=today,
+            )
+            for job in jobs
         ])
         db.commit()
     finally:

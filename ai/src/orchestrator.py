@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import List, Dict, Any
 from config import settings
 from db import (
-    save_domain_report, get_active_resumes, get_resume_recipients, get_resume_sent_links,
+    save_domain_report, get_active_resumes, get_resume_recipients, get_resume_sent_identity,
     record_resume_sent_jobs, save_resume_report,
 )
 from src.scrapers import GreenhouseScraper, LeverScraper, AshbyScraper, WorkdayScraper, PlaywrightScraper
 from src.filters import filter_job, filter_job_for_resume, verify_job_with_ai
-from src.storage import load_history_signatures, is_duplicate_job, purge_expired_history
+from src.storage import load_history_signatures, is_duplicate_job, purge_expired_history, job_signature
 from src.reporting import generate_styled_excel, send_email_with_report, send_resume_report_email
 from src.resume import rank_jobs_for_resume
 
@@ -238,16 +238,22 @@ def run_pipeline() -> bool:
                 continue
 
             try:
-                # Permanent dedup -- every link ever sent to this resume, not just a recent
-                # window -- so today's RESUME_REPORT_TOP_N are guaranteed never repeated.
-                already_sent = get_resume_sent_links(resume_id)
+                # Permanent dedup -- every link OR company+normalized-title signature ever
+                # sent to this resume, not just a recent window -- so today's
+                # RESUME_REPORT_TOP_N are guaranteed never repeated, even if a company
+                # re-posts the same role under a new URL and/or a lightly reworded title.
+                already_sent_links, already_sent_signatures = get_resume_sent_identity(resume_id)
                 candidates = []
                 for job in raw_jobs:
                     is_match, _, enriched_job = filter_job_for_resume(job, min_years, max_years)
                     if not is_match:
                         continue
-                    if enriched_job.get("apply_link") in already_sent:
+                    if enriched_job.get("apply_link") in already_sent_links:
                         continue
+                    sig = job_signature(enriched_job)
+                    if sig in already_sent_signatures:
+                        continue
+                    enriched_job["job_signature"] = sig
                     candidates.append(enriched_job)
 
                 logger.info(f"[resume:{resume_id}] {len(candidates)} candidate jobs after USA/experience filter + dedup.")
@@ -273,7 +279,7 @@ def run_pipeline() -> bool:
                     file_bytes=file_bytes,
                     job_count=len(ranked),
                 )
-                record_resume_sent_jobs(resume_id, [j.get("apply_link") for j in ranked if j.get("apply_link")])
+                record_resume_sent_jobs(resume_id, [j for j in ranked if j.get("apply_link")])
 
                 recipients = get_resume_recipients(resume_id)
                 if recipients:

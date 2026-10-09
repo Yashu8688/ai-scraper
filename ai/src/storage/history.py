@@ -168,6 +168,42 @@ def load_history_signatures(company_cooldown_days: int = 14, retention_days: int
     logger.info(f"Loaded {total_links} links, {total_titles} title-company pairs (last {retention_days}d), and {total_recent} companies featured in the last {company_cooldown_days} days (across all domains).")
     return seen_titles_companies, seen_links, recent_companies
 
+_PAREN_BRACKET_PATTERN = re.compile(r"\(.*?\)|\[.*?\]")        # "(Remote)", "[Hybrid]"
+_WORKMODE_PATTERN = re.compile(r"\b(remote|hybrid|onsite|on-site)\b")
+_TRAILING_LEVEL_PATTERN = re.compile(r"\b(i{1,3}|iv|v|[0-9]+)\b$")  # trailing "II", "III", "2"
+_TITLE_PUNCT_PATTERN = re.compile(r"[^a-z0-9\s]")
+_WHITESPACE_PATTERN = re.compile(r"\s+")
+
+
+def normalize_job_title(title: str) -> str:
+    """
+    Strips cosmetic differences a company's own re-posting of the same role commonly
+    introduces (a trailing "II"/"2", a "(Remote)" tag, punctuation/dash style) so the same
+    role under a lightly reworded title still matches. Deliberately conservative -- it only
+    removes well-known noise patterns, not arbitrary words, to avoid merging two genuinely
+    different roles that happen to share common words.
+
+    Applied as sequential passes rather than one combined regex: the trailing-level pattern
+    anchors to end-of-string ($), which would never match "II" in "Engineer II (Remote)" if
+    checked before the parenthetical is removed -- "(Remote)", not "II", is what's actually
+    at the end of the original string.
+    """
+    normalized = title.strip().lower()
+    normalized = _PAREN_BRACKET_PATTERN.sub(" ", normalized)
+    normalized = _WORKMODE_PATTERN.sub(" ", normalized)
+    normalized = _WHITESPACE_PATTERN.sub(" ", normalized).strip()
+    normalized = _TRAILING_LEVEL_PATTERN.sub(" ", normalized)
+    normalized = _TITLE_PUNCT_PATTERN.sub(" ", normalized)
+    return _WHITESPACE_PATTERN.sub(" ", normalized).strip()
+
+
+def job_signature(job: dict) -> str:
+    """Company + normalized title -- a looser identity than the exact apply_link, catching a
+    job that got re-posted under a new URL and/or a lightly reworded title."""
+    company = job.get("company", "").strip().lower()
+    return f"{company}::{normalize_job_title(job.get('title', ''))}"
+
+
 def is_duplicate_job(job: dict, seen_titles_companies: Set[str], seen_links: Set[str]) -> bool:
     """
     Checks if a job already exists in the 90-day history for its domain.
