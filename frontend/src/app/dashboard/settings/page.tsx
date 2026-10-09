@@ -248,6 +248,20 @@ export default function SettingsPage() {
               />
             </div>
           </div>
+
+          <label className="flex items-center gap-2 cursor-pointer w-fit pt-1">
+            <input
+              type="checkbox"
+              checked={useAiFilter}
+              onChange={(e) => setUseAiFilter(e.target.checked)}
+              className="h-3.5 w-3.5 accent-[#2F6F5E] cursor-pointer"
+            />
+            <span className="text-xs text-[#1E293B] font-semibold">Use Claude AI to verify job relevance</span>
+          </label>
+          <p className="text-[11px] text-[#5B5F4A] -mt-2">
+            Off: every scraped job that passes the basic keyword/experience filters is accepted as-is (and resume
+            matching falls back to newest-first instead of real relevance ranking). Requires a Claude API key below.
+          </p>
         </div>
 
         {/* 2. SMTP block */}
