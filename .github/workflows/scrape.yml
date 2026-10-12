@@ -46,7 +46,6 @@ jobs:
         EMAIL_TO: ${{ secrets.EMAIL_TO }}
         EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
         CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-        USE_AI_FILTER: "true"
         # Required: companies are read from PostgreSQL (the dashboard writes there).
         # Without this the run silently falls back to the stale config/companies.json.
         DATABASE_URL: ${{ secrets.DATABASE_URL }}

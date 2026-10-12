@@ -171,10 +171,17 @@ class SettingsModule:
 
     @property
     def USE_AI_FILTER(self) -> bool:
-        val = self._get_db_value("use_ai_filter")
-        if val is not None:
-            return val.lower() == "true"
-        return os.getenv("USE_AI_FILTER", "false").lower() == "true"
+        """
+        Always on -- not user-configurable. Used to be a DB-backed toggle on the Settings
+        page, but having no actual UI control for it meant it was permanently stuck off
+        (silently rewritten back to "false" on every unrelated settings save), which is what
+        caused both domain filtering and resume ranking to run on pure fallback logic for
+        weeks with nobody able to tell from the dashboard. Every call site already falls back
+        gracefully when settings.CLAUDE_API_KEY is empty, so this alone doesn't require a key
+        to be present -- it just stops "AI filtering" from being a switch someone can
+        accidentally leave off.
+        """
+        return True
 
     @property
     def GEMINI_API_KEY(self) -> str:
