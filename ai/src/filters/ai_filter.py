@@ -177,6 +177,14 @@ def verify_job_with_ai(job: Dict[str, Any]) -> Tuple[bool, str]:
         logger.warning("[Claude] Rate limit hit. Falling back to rule-based filter.")
         return True, "Claude rate limit — fallback to rule-based"
 
+    except anthropic.BadRequestError as e:
+        # Most commonly an exhausted/too-low Anthropic account credit balance, not a bug in
+        # the request itself -- full detail goes to the server log only. The raw API error
+        # text must never land in a client-facing field (confirmed in practice: it used to
+        # get appended straight into the Excel's "Experience Required" column).
+        logger.error(f"[Claude] Bad request (often a billing/credit issue on the Anthropic account): {str(e)}")
+        return True, "Claude unavailable (account billing/credits) — fallback to rule-based"
+
     except Exception as e:
         logger.error(f"[Claude] Unexpected error: {str(e)}", exc_info=True)
-        return True, f"Claude error fallback: {str(e)[:80]}"
+        return True, "Claude error — fallback to rule-based"
