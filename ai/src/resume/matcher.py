@@ -40,10 +40,13 @@ MAX_CANDIDATES_PER_CALL = 300
 
 
 def _keyword_overlap_score(job: Dict[str, Any], profile: Dict[str, Any]) -> int:
-    """Cheap, local relevance heuristic (no API call) used only to decide which jobs are
-    worth spending the one Claude call's limited slots on -- real ranking is still Claude's
-    job in rank_jobs_for_resume. Counts how many of the resume's target titles/skills appear
-    in the job's title or description."""
+    """Cheap, local relevance heuristic (no API call). Counts how many of the resume's
+    target titles/skills appear in the job's title or description. Used both to decide which
+    jobs are worth spending the one Claude call's limited slots on, AND as the fallback
+    ranking signal itself when Claude is unavailable -- relevance must never degrade to pure
+    recency, since a resume report sorted by date alone has no connection to the resume at
+    all (confirmed in production: teller/warehouse/phlebotomist roles for a Data Engineer
+    resume, simply because they were the most recently posted jobs that day)."""
     haystack = f"{job.get('title', '')} {job.get('description', '')}".lower()
     score = 0
     for title in profile.get("target_titles") or []:
@@ -57,8 +60,8 @@ def _keyword_overlap_score(job: Dict[str, Any], profile: Dict[str, Any]) -> int:
 
 def _narrow_candidates(profile: Dict[str, Any], candidate_jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Reduces a (potentially huge) candidate pool to at most MAX_CANDIDATES_PER_CALL jobs
-    worth sending to Claude, in two steps:
+    Reduces a (potentially huge) candidate pool to at most MAX_CANDIDATES_PER_CALL jobs,
+    sorted best-first by _keyword_overlap_score, in two steps:
 
     1. At most one job per company -- the single best-scoring one. Without this, a company
        that posted the same role across many locations (seen in practice: one employer
@@ -66,9 +69,13 @@ def _narrow_candidates(profile: Dict[str, Any], candidate_jobs: List[Dict[str, A
        company's jobs entirely. The rest of that company's postings are simply never
        considered today -- not recorded as sent, so they're still available for a future run
        instead of being wasted on duplicates.
-    2. The remaining one-per-company jobs are sorted by the same relevance heuristic before
-       truncating to MAX_CANDIDATES_PER_CALL, so if there are still more companies than that
-       cap, the ones most likely to actually match the resume are the ones Claude sees.
+    2. The remaining one-per-company jobs are sorted by relevance before truncating to
+       MAX_CANDIDATES_PER_CALL, so if there are still more companies than that cap, the ones
+       most likely to actually match the resume are the ones that survive.
+
+    Both rank_jobs_for_resume's Claude path and its fallback build on this same narrowed,
+    relevance-sorted pool -- Claude does finer-grained ranking on top of it when available,
+    but even without Claude, the output is never just "whatever's newest."
     """
     best_per_company: Dict[str, Dict[str, Any]] = {}
     scores: Dict[int, int] = {}
@@ -82,20 +89,25 @@ def _narrow_candidates(profile: Dict[str, Any], candidate_jobs: List[Dict[str, A
 
     diverse = list(best_per_company.values())
     diverse.sort(key=lambda j: scores.get(id(j), 0), reverse=True)
+    for job in diverse:
+        job["_keyword_score"] = scores.get(id(job), 0)
     return diverse[:MAX_CANDIDATES_PER_CALL]
 
 
-def _fallback_rank(candidate_jobs: List[Dict[str, Any]], top_n: int) -> List[Dict[str, Any]]:
-    """Used when Claude is unavailable -- takes the newest postings with no real relevance
-    scoring, so a resume report still goes out rather than being silently skipped. Still
-    enforces one-job-per-company first (see _narrow_candidates) so this fallback can't be
-    flooded by a single employer's many near-duplicate postings the way a plain sort would."""
-    one_per_company = list({job.get("company", ""): job for job in
-                             sorted(candidate_jobs, key=lambda j: j.get("date_posted", "") or "0000-00-00")}.values())
-    ranked = sorted(one_per_company, key=lambda j: j.get("date_posted", "") or "0000-00-00", reverse=True)[:top_n]
+def _fallback_rank(pool: List[Dict[str, Any]], top_n: int) -> List[Dict[str, Any]]:
+    """Used when Claude is unavailable. `pool` must already be the output of
+    _narrow_candidates (one job per company, sorted best-first by keyword relevance) -- this
+    just takes the top_n and labels them, it does no ranking of its own.
+
+    Drops zero-overlap jobs entirely rather than padding the report up to top_n with them --
+    a shorter, honest list of plausible matches beats a full one padded with jobs that share
+    nothing with the resume (confirmed in production: a Data Engineer resume's report was
+    filled out with Teller/Warehouse/Phlebotomist postings once real matches ran out)."""
+    ranked = [job for job in pool if job.get("_keyword_score", 0) > 0][:top_n]
     for job in ranked:
+        score = job.pop("_keyword_score", 0)
         job["match_score"] = None
-        job["match_reason"] = "AI ranking unavailable -- sorted by posting date"
+        job["match_reason"] = f"AI ranking unavailable -- matched {score} resume keyword(s)"
     return ranked
 
 
@@ -112,11 +124,12 @@ def rank_jobs_for_resume(
     if not candidate_jobs:
         return []
 
-    if not settings.USE_AI_FILTER or not settings.CLAUDE_API_KEY:
-        logger.warning("Resume matching: AI filter disabled or no CLAUDE_API_KEY -- falling back to newest-first.")
-        return _fallback_rank(candidate_jobs, top_n)
-
+    # One-job-per-company + relevance sort applies to every path below, Claude or not.
     pool = _narrow_candidates(profile, candidate_jobs)
+
+    if not settings.USE_AI_FILTER or not settings.CLAUDE_API_KEY:
+        logger.warning("Resume matching: AI filter disabled or no CLAUDE_API_KEY -- using keyword-relevance fallback.")
+        return _fallback_rank(pool, top_n)
 
     job_list_lines = []
     for i, job in enumerate(pool):
@@ -160,8 +173,8 @@ def rank_jobs_for_resume(
                 raise
 
         if response_text is None:
-            logger.warning("Resume matching: all Claude models failed. Falling back to newest-first.")
-            return _fallback_rank(candidate_jobs, top_n)
+            logger.warning("Resume matching: all Claude models failed. Using keyword-relevance fallback.")
+            return _fallback_rank(pool, top_n)
 
         cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", response_text.strip())
         rankings = json.loads(cleaned)
@@ -172,16 +185,17 @@ def rank_jobs_for_resume(
             if idx is None or not (0 <= idx < len(pool)):
                 continue
             job = dict(pool[idx])
+            job.pop("_keyword_score", None)
             job["match_score"] = entry.get("score")
             job["match_reason"] = entry.get("reason", "")
             ranked_jobs.append(job)
 
         if not ranked_jobs:
-            logger.warning("Resume matching: Claude returned no usable rankings. Falling back to newest-first.")
-            return _fallback_rank(candidate_jobs, top_n)
+            logger.warning("Resume matching: Claude returned no usable rankings. Using keyword-relevance fallback.")
+            return _fallback_rank(pool, top_n)
 
         return ranked_jobs[:top_n]
 
     except Exception as e:
         logger.error(f"Resume matching: Claude ranking failed: {str(e)}", exc_info=True)
-        return _fallback_rank(candidate_jobs, top_n)
+        return _fallback_rank(pool, top_n)
