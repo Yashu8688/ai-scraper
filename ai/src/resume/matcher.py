@@ -7,7 +7,9 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-RANKING_PROMPT_TEMPLATE = """You are an expert technical recruiter matching a candidate to open roles.
+RANKING_PROMPT_TEMPLATE = """You are a strict, skeptical technical recruiter screening postings for one candidate.
+Your job is precision, not volume -- a candidate who gets one genuinely relevant lead is served far
+better than one who gets twenty near-misses mixed in with it.
 
 CANDIDATE PROFILE:
 - Target titles: {target_titles}
@@ -15,9 +17,19 @@ CANDIDATE PROFILE:
 - Experience level: {min_years}-{max_years} years
 - Summary: {summary}
 
-Below is a numbered list of {count} candidate job postings. Pick the {top_n} best-fit postings for
-this candidate and rank them best-first. For each, give a fit score from 0-100 and a one-sentence
-reason tied to the candidate's actual skills/background.
+Below is a numbered list of {count} candidate job postings. Select ONLY the postings that are a
+genuine match: the role itself (not just the industry or company) aligns with the candidate's
+target titles, AND the posting's actual responsibilities/requirements substantively overlap with
+the candidate's core skills -- not just a tangential mention of one shared buzzword. A posting in
+a related field but a different function (e.g. a sales/support/ops role at a tech company, for an
+engineering candidate) is NOT a match, no matter how senior or well-paid it is.
+
+Select at most {top_n}, ranked best-first. If fewer than {top_n} postings are genuine matches,
+return fewer -- do not include a weak or borderline posting just to reach {top_n}. Returning zero
+results is the correct answer if nothing in the list is a real match. For each selected posting,
+give an honest fit score from 0-100 (reserve 70+ for a posting you'd actually forward to this
+candidate without caveats) and a one-sentence reason tied to specific overlap with their actual
+skills/background.
 
 Respond with ONLY a JSON array, no markdown fences, no extra commentary. Each element:
 {{"index": <int, the posting's number below>, "score": <int 0-100>, "reason": "<one sentence>"}}
@@ -25,6 +37,11 @@ Respond with ONLY a JSON array, no markdown fences, no extra commentary. Each el
 JOB POSTINGS:
 {job_list}
 """
+
+# A posting Claude itself scored below this is dropped even if it included it in the response --
+# a floor beneath the prompt's own "70+ to actually forward" guidance, catching a model that
+# includes a borderline pick despite being told not to.
+MIN_MATCH_SCORE = 60
 
 CLAUDE_MODELS = [
     "claude-haiku-4-5",
@@ -176,24 +193,33 @@ def rank_jobs_for_resume(
             logger.warning("Resume matching: all Claude models failed. Using keyword-relevance fallback.")
             return _fallback_rank(pool, top_n)
 
-        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", response_text.strip())
-        rankings = json.loads(cleaned)
+        try:
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", response_text.strip())
+            rankings = json.loads(cleaned)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"Resume matching: Claude's response wasn't valid JSON ({e}). Using keyword-relevance fallback.")
+            return _fallback_rank(pool, top_n)
 
         ranked_jobs = []
         for entry in rankings:
             idx = entry.get("index")
+            score = entry.get("score", 0)
             if idx is None or not (0 <= idx < len(pool)):
                 continue
+            if score < MIN_MATCH_SCORE:
+                continue  # Claude included it despite being told not to pad -- drop it anyway
             job = dict(pool[idx])
             job.pop("_keyword_score", None)
-            job["match_score"] = entry.get("score")
+            job["match_score"] = score
             job["match_reason"] = entry.get("reason", "")
             ranked_jobs.append(job)
 
+        # A successfully-parsed response with zero (or zero post-threshold) results is Claude
+        # correctly reporting "nothing here is a real match" -- not a failure, so it's NOT a
+        # fallback trigger. Falling back here would reintroduce the weak/irrelevant matches
+        # Claude was specifically asked to reject.
         if not ranked_jobs:
-            logger.warning("Resume matching: Claude returned no usable rankings. Using keyword-relevance fallback.")
-            return _fallback_rank(pool, top_n)
-
+            logger.info("Resume matching: Claude found no postings meeting the match bar today.")
         return ranked_jobs[:top_n]
 
     except Exception as e:
